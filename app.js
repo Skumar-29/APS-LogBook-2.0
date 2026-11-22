@@ -4,7 +4,7 @@
   var ZONES = { ACT: 'Australia/Sydney', NSW: 'Australia/Sydney', VIC: 'Australia/Melbourne', QLD: 'Australia/Brisbane', SA: 'Australia/Adelaide', TAS: 'Australia/Hobart', NT: 'Australia/Darwin', WA: 'Australia/Perth' };
   var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var BLANK = new Array(D + 1).join('r');
-  var KEY = 'workdiary.v1', VERSION = '2.5.0';
+  var KEY = 'workdiary.v1', VERSION = '2.5.1';
   var HOSTED = !!(window.claude && window.claude.use); // true inside Claude, false on your own site
 
   /* ---------- state ---------- */
@@ -222,7 +222,7 @@
       for (var q = 0; q < 4; q++) { i = h * 4 + q; cells += '<button type="button" class="b" data-i="' + i + '" tabindex="' + (i === 0 ? 0 : -1) + '" aria-label="' + clock(i) + '"></button>'; }
       cells += '</div></div>';
     }
-    var html = '<div class="wrap"><div class="daybar" id="daybar"><div class="day">' + fmtDay(n, true) + (n > nw.n ? ' <span class="chip">Plan</span>' : isToday ? ' <span class="chip ok">Today</span>' : '') + (bad ? ' <span class="chip bad">' + bad + ' issue' + (bad > 1 ? 's' : '') + '</span>' : w ? ' <span class="chip ok">Within limits</span>' : ' <span class="chip">No work</span>') + (function () { var pg = pageOf(n); return pg ? ' <span class="chip" id="pgchip">' + (pg.no ? 'Book ' + esc(pg.no) + ' · ' : '') + 'Page ' + pg.page + '</span>' : ''; })() + '</div>'
+    var html = '<div class="wrap"><div class="daybar" id="daybar"><div class="day"><span class="dname">' + fmtDay(n) + '<span class="yr"> ' + new Date(n * 864e5).getUTCFullYear() + '</span></span>' + (n > nw.n ? ' <span class="chip">Plan</span>' : isToday ? ' <span class="chip ok">Today</span>' : '') + (bad ? ' <span class="chip bad">' + bad + ' issue' + (bad > 1 ? 's' : '') + '</span>' : w ? ' <span class="chip ok">Within limits</span>' : ' <span class="chip">No work</span>') + (function () { var pg = pageOf(n); return pg ? ' <span class="chip" id="pgchip" title="' + (pg.no ? 'Book ' + esc(pg.no) + ', ' : '') + 'page ' + pg.page + '"><span class="pgl">' + (pg.no ? 'Book ' + esc(pg.no) + ' · ' : '') + 'Page </span><span class="pgs">Pg </span>' + pg.page + '</span>' : ''; })() + '</div>'
       + '<div class="daynav"><button class="btn" id="prev" aria-label="Previous day">‹</button><button class="btn" id="today">Today</button><input type="date" id="pick" aria-label="Go to date" value="' + keyOf(n) + '"><button class="btn" id="next" aria-label="Next day">›</button></div>' + (n >= nw.n && window.WDPlan && window.WDPlan.quick ? '<div class="canwork" id="canwork" role="status"><b>Checking…</b></div>' : '') + '</div>'
       + '<div class="cols"><div class="stack">'
       + '<div class="card stack sheetcard" style="gap:12px">'
@@ -245,15 +245,16 @@
     if (cw) setTimeout(function () {
       if (!cw.isConnected) return; var q = null; try { q = window.WDPlan.quick(n); } catch (e) {}
       if (!q) { cw.remove(); } else {
-        var cls = 'ok', top, sub;
-        if (q.planned) { cls = 'info'; top = hm(q.planned) + ' work is already in the diary for this shift'; sub = q.lnLeft != null ? 'Long/night left after it: ' + hm(q.lnLeft) : ''; }
-        else if (!q.work) { cls = 'bad'; top = 'You cannot work this day'; sub = q.stopWhy ? 'Reason: ' + q.stopWhy : ''; }
+        var cls = 'ok', top, sub, full;
+        if (q.planned) { cls = 'info'; top = hm(q.planned) + ' in diary'; sub = q.lnLeft != null ? hm(q.lnLeft) + ' long/night left' : ''; full = hm(q.planned) + ' work is already in the diary for this shift.' + (q.lnLeft != null ? ' Long/night left after it: ' + hm(q.lnLeft) + '.' : ''); }
+        else if (!q.work) { cls = 'bad'; top = 'Cannot work this day'; sub = q.stopWhy || ''; full = 'You cannot work this day.' + (q.stopWhy ? ' Reason: ' + q.stopWhy + '.' : ''); }
         else {
           if (q.work < 32) cls = 'warn';
-          top = 'You can work ' + hm(q.work) + (q.fromNow ? ' from now' : ' from ' + clock(q.firstS) + (q.nextDay ? ' (after midnight)' : ''));
-          sub = (q.ln ? 'Uses ' + [q.night ? hm(q.night) + ' night' : '', q.long ? hm(q.long) + ' long' : ''].filter(Boolean).join(' + ') : 'No long/night hours used') + (q.lnBefore != null ? ' · ' + hm(q.lnBefore) + ' long/night left before' : '') + (q.wait && q.waitWhy ? ' · starts late: ' + q.waitWhy : '') + (q.work < 56 && q.stopWhy ? ' · limit: ' + q.stopWhy : '');
+          var from = q.fromNow ? ' from now' : ' from ' + clock(q.firstS) + (q.nextDay ? ' (after midnight)' : '');
+          top = 'Can work ' + hm(q.work) + from; sub = q.work < 56 && q.stopWhy ? 'limit: ' + q.stopWhy : q.lnBefore != null ? hm(q.lnBefore) + ' long/night left' : '';
+          full = 'You can work ' + hm(q.work) + from + '. ' + (q.ln ? 'Uses ' + [q.night ? hm(q.night) + ' night' : '', q.long ? hm(q.long) + ' long' : ''].filter(Boolean).join(' + ') + '.' : 'No long/night hours used.') + (q.lnBefore != null ? ' ' + hm(q.lnBefore) + ' long/night left before it.' : '') + (q.wait && q.waitWhy ? ' Starts late: ' + q.waitWhy + '.' : '') + (q.work < 56 && q.stopWhy ? ' Limit: ' + q.stopWhy + '.' : '');
         }
-        cw.className = 'canwork ' + cls; cw.innerHTML = '<b>' + esc(top) + '</b>' + (sub ? '<small>' + esc(sub) + '</small>' : '');
+        cw.className = 'canwork ' + cls; cw.innerHTML = '<b>' + esc(top) + '</b>' + (sub ? '<small> · ' + esc(sub) + '</small>' : ''); cw.onclick = function () { toast(full, 8000); };
       }
       if (db) main.style.setProperty('--dbh', db.offsetHeight + 'px');
       fitSheet();
@@ -510,14 +511,22 @@
   document.addEventListener('scroll', function (e) { if (sugBox && !(e.target && e.target.closest && e.target.closest('.sug'))) sugHide(); }, true);
   window.addEventListener('resize', sugHide);
   // Diary: size the blocks so all four rows fit on the screen under the date bar
-  function fitSheet() {
+  var fitKey = '', fitW = 0, fitH = 0;
+  function fitSheet(force) {
     var sh = document.getElementById('sheet'), b = sh && sh.querySelector('.b'); if (!b) return;
+    var key = window.innerWidth + 'x' + fitH; if (!force && fitKey === key) return; // worked out once for this screen: blocks keep one size
+    main.style.removeProperty('--bh');
     var cols = getComputedStyle(sh).gridTemplateColumns.split(' ').length || 6, rows = Math.ceil(24 / cols), cur = b.offsetHeight;
-    var top = sh.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop, over = sh.offsetHeight - rows * cur;
-    var fit = Math.floor((main.clientHeight - top - 10 - over) / rows), h = Math.max(24, Math.min(window.innerWidth < 700 ? 84 : 60, fit));
-    if (Math.abs(h - cur) >= 1) main.style.setProperty('--bh', h + 'px');
+    var cw = document.getElementById('canwork'), db = document.getElementById('daybar');
+    var top = sh.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop + (cw || !db ? 0 : 44), over = sh.offsetHeight - rows * cur;
+    var fit = Math.floor((main.clientHeight - top - 10 - over) / rows), h = Math.max(24, Math.min(window.innerWidth < 700 ? 88 : 60, fit));
+    main.style.setProperty('--bh', h + 'px'); fitW = window.innerWidth; fitH = fitH || window.innerHeight; fitKey = fitW + 'x' + fitH;
   }
-  window.addEventListener('resize', function () { if (document.getElementById('sheet')) { fitSheet(); var d = document.getElementById('daybar'); if (d) main.style.setProperty('--dbh', d.offsetHeight + 'px'); } });
+  window.addEventListener('resize', function () {
+    if (window.innerWidth === fitW && Math.abs(window.innerHeight - fitH) < 120) return; // ignore the browser bar sliding in and out
+    fitH = window.innerHeight; fitKey = '';
+    if (document.getElementById('sheet')) { var d = document.getElementById('daybar'); if (d) main.style.setProperty('--dbh', d.offsetHeight + 'px'); fitSheet(true); }
+  });
   // no pinch or double-tap zoom on the app screens (document previews can still be zoomed)
   document.addEventListener('gesturestart', function (e) { if (!(e.target.closest && e.target.closest('.paper-scroll, [data-zoom]'))) e.preventDefault(); }, { passive: false });
   function diaryDay(n) {

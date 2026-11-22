@@ -329,3 +329,13 @@ html,body{max-width:100%;overflow-x:hidden;overscroll-behavior:none}
   .canwork{min-height:0;padding:5px 10px}.canwork b{font-size:15px}.canwork small{display:none}
   .readout{min-height:34px;padding:5px 10px}.card.sheetcard{padding:8px 8px;gap:8px!important}.wrap{gap:10px}
 }
+
+/* ---------- diary top: one line for the date, one line for the strip, fixed height ---------- */
+.daybar .day{flex-wrap:nowrap;white-space:nowrap;overflow:hidden;align-items:center;gap:8px;min-width:0}
+.daybar .day .dname{flex:0 0 auto}.daybar .day .chip{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;line-height:1.5}
+.pgs{display:none}
+.canwork{flex-direction:row;align-items:center;gap:0;min-height:36px;height:36px;padding:0 12px;white-space:nowrap;overflow:hidden;cursor:pointer}
+.canwork b{font-size:15.5px;flex:0 0 auto}.canwork small{font-size:14px;overflow:hidden;text-overflow:ellipsis;min-width:0;white-space:pre}
+@media (max-width:559px){.daybar .day{font-size:clamp(19px,6vw,24px);gap:6px;flex-basis:100%}.daybar .day .yr{display:none}.daybar .day .chip{font-size:12.5px;padding:1px 8px}.pgl{display:none}.pgs{display:inline}}
+@media (max-height:640px) and (max-width:699px){.canwork{min-height:30px;height:30px}.canwork small{display:inline}.daybar .day{font-size:20px}}
+.canwork{justify-content:flex-start}
