@@ -6,11 +6,13 @@
   var WD = window.WD, K = 'workdiary.drive', OK = 'workdiary.oauth', SCOPE = 'https://www.googleapis.com/auth/drive.file';
   var AUTH = 'https://accounts.google.com/o/oauth2/v2/auth', API = 'https://www.googleapis.com', FOLDER = 'APS Logbook', MAIN = 'sync.json', KEEP = 10;
   var cfg = { clientId: '', connected: false, token: '', exp: 0, folderId: '', fileId: '', version: '', hash: '', lastSync: 0, backupDay: '' };
+  var BUILTIN = '776820088729-3prn1icrmoca7luv9v4v1qa2k0h88csr.apps.googleusercontent.com'; // the app owner's public Client ID
   try { Object.assign(cfg, JSON.parse(localStorage.getItem(K) || '{}')); } catch (e) {}
+  if (!cfg.clientId) cfg.clientId = BUILTIN;
   var busy = false, again = false, timer = null, state = 'off', note = '';
   function keep() { try { localStorage.setItem(K, JSON.stringify(cfg)); } catch (e) {} }
   function tokenOk() { return !!cfg.token && Date.now() < cfg.exp; }
-  function redirectUri() { return location.origin + location.pathname; }
+  function redirectUri() { return location.origin + location.pathname.replace(/index\.html$/, ''); }
 
   /* ---------- sign-in (OAuth 2.0 for client-side web apps, redirect) ---------- */
   function signIn(silent) {
@@ -133,11 +135,12 @@
       var e = WD.esc;
       return '<div class="card stack" style="gap:12px"><h3>Google Drive sync</h3><div class="sync" id="gd-status" role="status">' + e(statusText()) + '</div>'
         + (cfg.connected ? '<div class="tools"><button class="btn pri" id="gd-sync">Sync now</button>' + (tokenOk() ? '' : '<button class="btn" id="gd-in">Sign in again</button>') + '<button class="btn danger" id="gd-out">Disconnect</button></div><p class="hint">Changes sync by themselves about 12 seconds after you stop typing, and when you open the app. Google asks you to sign in again about once an hour: tap the Drive button at the top when it says “sign in”. Your files are in the “' + FOLDER + '” folder in your Google Drive, with one backup copy a day (newest ' + KEEP + ' kept).</p>'
-          : '<div class="form" style="grid-template-columns:1fr"><label>Google Client ID<input id="gd-id" value="' + e(cfg.clientId) + '" placeholder="1234567890-abc.apps.googleusercontent.com" autocomplete="off" autocapitalize="off" spellcheck="false"></label></div><div class="tools"><button class="btn pri" id="gd-in">Connect Google Drive</button></div><p class="hint">Sign in with the same Google account on each phone or computer to see the same diary, invoices, forms, notes and documents. You need your own Google Client ID once; the steps are in the README file. Address to allow in Google Cloud: <b>' + e(redirectUri()) + '</b></p>') + '</div>';
+          : '<div class="tools"><button class="btn pri" id="gd-in" style="flex:1 1 100%">Sign in with Google</button></div><p class="hint">Sign in with the same Google account on each phone or computer to see the same diary, invoices, forms, notes and documents. The app only sees the files it makes itself, in a folder called “' + FOLDER + '” in your Google Drive.</p>'
+            + '<details class="fold"><summary>Advanced: use my own Google Client ID</summary><div class="form" style="grid-template-columns:1fr;margin-top:8px"><label>Google Client ID<input id="gd-id" value="' + e(cfg.clientId) + '" placeholder="1234567890-abc.apps.googleusercontent.com" autocomplete="off" autocapitalize="off" spellcheck="false"></label></div><p class="hint">Only needed if you host your own copy of this app. Address to allow in Google Cloud: <b>' + e(redirectUri()) + '</b></p></details>') + '</div>';
     },
     bind: function () {
-      var id = document.getElementById('gd-id'); if (id) id.addEventListener('change', function () { cfg.clientId = id.value.trim(); keep(); });
-      var a = document.getElementById('gd-in'); if (a) a.addEventListener('click', function () { if (id) { cfg.clientId = id.value.trim(); keep(); } if (!/\.apps\.googleusercontent\.com$/.test(cfg.clientId)) return WD.toast('That does not look like a Google Client ID. It ends with .apps.googleusercontent.com'); signIn(false); });
+      var id = document.getElementById('gd-id'); if (id) id.addEventListener('change', function () { cfg.clientId = id.value.trim() || BUILTIN; keep(); });
+      var a = document.getElementById('gd-in'); if (a) a.addEventListener('click', function () { if (id) { cfg.clientId = id.value.trim() || BUILTIN; keep(); } if (!/\.apps\.googleusercontent\.com$/.test(cfg.clientId)) return WD.toast('That does not look like a Google Client ID. It ends with .apps.googleusercontent.com'); signIn(false); });
       var s = document.getElementById('gd-sync'); if (s) s.addEventListener('click', function () { if (!tokenOk()) return signIn(true); sync(true); });
       var o = document.getElementById('gd-out'); if (o) o.addEventListener('click', function () { cfg.connected = false; cfg.token = ''; cfg.exp = 0; cfg.folderId = ''; cfg.fileId = ''; cfg.version = ''; cfg.hash = ''; keep(); set('off', 'Disconnected. Your records stay on this device and in your Drive.'); WD.render(); });
     }

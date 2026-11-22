@@ -1,5 +1,5 @@
 /* APS Logbook: offline support. The cache name changes with every build. */
-var CACHE = 'work-diary-bd05bf3c85';
+var CACHE = 'work-diary-cb5c5581df';
 var FILES = ["./", "index.html", "app.css", "engine.js", "app.js", "office.js", "drive.js", "plan.js", "coach.js", "aps-core.js", "fonts/WorkspaceSans-Regular.ttf", "fonts/WorkspaceSans-Bold.ttf", "templates/safe-driving-original-v1.pdf", "templates/safe-driving-original-v1-page-1.svg", "templates/safe-driving-original-v1-page-2.svg", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png", "fonts/barlow-latin-400-normal.woff2", "fonts/barlow-latin-500-normal.woff2", "fonts/barlow-latin-600-normal.woff2", "fonts/barlow-condensed-latin-600-normal.woff2", "fonts/barlow-condensed-latin-700-normal.woff2"];
 self.addEventListener('install', function (e) { e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(FILES); }).then(function () { return self.skipWaiting(); })); });
 self.addEventListener('activate', function (e) {
