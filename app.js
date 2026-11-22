@@ -4,7 +4,7 @@
   var ZONES = { ACT: 'Australia/Sydney', NSW: 'Australia/Sydney', VIC: 'Australia/Melbourne', QLD: 'Australia/Brisbane', SA: 'Australia/Adelaide', TAS: 'Australia/Hobart', NT: 'Australia/Darwin', WA: 'Australia/Perth' };
   var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var BLANK = new Array(D + 1).join('r');
-  var KEY = 'workdiary.v1', VERSION = '2.4.2';
+  var KEY = 'workdiary.v1', VERSION = '2.5.0';
   var HOSTED = !!(window.claude && window.claude.use); // true inside Claude, false on your own site
 
   /* ---------- state ---------- */
@@ -225,11 +225,12 @@
     var html = '<div class="wrap"><div class="daybar" id="daybar"><div class="day">' + fmtDay(n, true) + (n > nw.n ? ' <span class="chip">Plan</span>' : isToday ? ' <span class="chip ok">Today</span>' : '') + (bad ? ' <span class="chip bad">' + bad + ' issue' + (bad > 1 ? 's' : '') + '</span>' : w ? ' <span class="chip ok">Within limits</span>' : ' <span class="chip">No work</span>') + (function () { var pg = pageOf(n); return pg ? ' <span class="chip" id="pgchip">' + (pg.no ? 'Book ' + esc(pg.no) + ' · ' : '') + 'Page ' + pg.page + '</span>' : ''; })() + '</div>'
       + '<div class="daynav"><button class="btn" id="prev" aria-label="Previous day">‹</button><button class="btn" id="today">Today</button><input type="date" id="pick" aria-label="Go to date" value="' + keyOf(n) + '"><button class="btn" id="next" aria-label="Next day">›</button></div>' + (n >= nw.n && window.WDPlan && window.WDPlan.quick ? '<div class="canwork" id="canwork" role="status"><b>Checking…</b></div>' : '') + '</div>'
       + '<div class="cols"><div class="stack">'
-      + '<div class="card stack sheetcard" style="gap:12px"><div class="dtools' + (window.WDOffice ? '' : ' five') + '">' + optSelect('dayopt', opt) + '<button class="btn" id="addshift">Add shift</button>' + (window.WDOffice ? '<button class="btn" id="bookview">Book view</button><button class="btn" id="sendpages">Send pages</button>' : '') + '<button class="btn" id="copyprev">Copy yesterday</button><button class="btn" id="undo"' + (undo.length ? '' : ' disabled') + '>Undo</button><button class="btn danger" id="clear"' + (w ? '' : ' disabled') + '>Clear day</button></div>'
+      + '<div class="card stack sheetcard" style="gap:12px">'
       + '<div class="readout" id="readout"></div>'
       + '<div class="sheet" id="sheet" role="group" aria-label="15 minute blocks for ' + fmtDay(n) + '">' + cells + '</div>'
+      + '<div class="dtools' + (window.WDOffice ? '' : ' five') + '">' + optSelect('dayopt', opt) + '<button class="btn" id="addshift">Add shift</button>' + (window.WDOffice ? '<button class="btn" id="bookview">Book view</button><button class="btn" id="sendpages">Send pages</button>' : '') + '<button class="btn" id="copyprev">Copy yesterday</button><button class="btn" id="undo"' + (undo.length ? '' : ' disabled') + '>Undo</button><button class="btn danger" id="clear"' + (w ? '' : ' disabled') + '>Clear day</button></div>'
       + '<div class="legend"><span><i class="w"></i>Work</span><span><i></i>Rest</span><span><i class="n"></i>Night rest hours (10pm to 8am)</span>' + (opt === 'bfm' ? '<span><i class="l"></i>Long/night work</span>' : '') + '<span><i class="x"></i>Over a limit</span></div>'
-      + '<p class="hint">Each row is 6 hours and each block is 15 minutes. Drag across the blocks to add work. Start the drag on a work block to remove it. On a phone, swipe sideways or press and hold to start, then move anywhere.</p></div>'
+      + (Object.keys(S.days).length < 3 ? '<p class="hint">Drag across the blocks to add work. Start the drag on a work block to remove it. On a phone, swipe sideways or press and hold to start.</p>' : '') + '</div>'
       + '<div class="card line"><h3>Daily sheet line</h3>' + sheetLine(s) + '</div>'
       + changesHTML(n, s, d)
       + '</div><div class="stack">'
@@ -239,6 +240,7 @@
       + '</div></div></div>';
     main.innerHTML = html;
     var db = document.getElementById('daybar'); if (db) main.style.setProperty('--dbh', db.offsetHeight + 'px');
+    fitSheet();
     var cw = document.getElementById('canwork');
     if (cw) setTimeout(function () {
       if (!cw.isConnected) return; var q = null; try { q = window.WDPlan.quick(n); } catch (e) {}
@@ -254,6 +256,7 @@
         cw.className = 'canwork ' + cls; cw.innerHTML = '<b>' + esc(top) + '</b>' + (sub ? '<small>' + esc(sub) + '</small>' : '');
       }
       if (db) main.style.setProperty('--dbh', db.offsetHeight + 'px');
+      fitSheet();
     }, 30);
     paintCells(n, A, isToday ? nw.i : -1);
     setReadout(null, w, lnc, opt);
@@ -506,6 +509,17 @@
   document.addEventListener('focusout', function (e) { if (e.target === sugFor) setTimeout(function () { if (document.activeElement !== sugFor) sugHide(); }, 150); });
   document.addEventListener('scroll', function (e) { if (sugBox && !(e.target && e.target.closest && e.target.closest('.sug'))) sugHide(); }, true);
   window.addEventListener('resize', sugHide);
+  // Diary: size the blocks so all four rows fit on the screen under the date bar
+  function fitSheet() {
+    var sh = document.getElementById('sheet'), b = sh && sh.querySelector('.b'); if (!b) return;
+    var cols = getComputedStyle(sh).gridTemplateColumns.split(' ').length || 6, rows = Math.ceil(24 / cols), cur = b.offsetHeight;
+    var top = sh.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop, over = sh.offsetHeight - rows * cur;
+    var fit = Math.floor((main.clientHeight - top - 10 - over) / rows), h = Math.max(24, Math.min(window.innerWidth < 700 ? 84 : 60, fit));
+    if (Math.abs(h - cur) >= 1) main.style.setProperty('--bh', h + 'px');
+  }
+  window.addEventListener('resize', function () { if (document.getElementById('sheet')) { fitSheet(); var d = document.getElementById('daybar'); if (d) main.style.setProperty('--dbh', d.offsetHeight + 'px'); } });
+  // no pinch or double-tap zoom on the app screens (document previews can still be zoomed)
+  document.addEventListener('gesturestart', function (e) { if (!(e.target.closest && e.target.closest('.paper-scroll, [data-zoom]'))) e.preventDefault(); }, { passive: false });
   function diaryDay(n) {
     var k = keyOf(n), d = S.days[k] || {}, s = getS(n), opt = optOf(n), ev = d.ev || {}, changes = {}, plate = d.plate != null && d.plate !== '' ? d.plate : S.settings.plate || '';
     Object.keys(ev).forEach(function (sl) { if (ev[sl] && (ev[sl].p || ev[sl].o)) changes[sl] = { slot: +sl, location: ev[sl].p || '', odometer: ev[sl].o || '', restType: 'stationary', note: '', vehicle: plate }; });

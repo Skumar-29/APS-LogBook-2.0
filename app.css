@@ -316,3 +316,16 @@ input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and
 @media (min-width:640px){.form.three{grid-template-columns:repeat(3,minmax(0,1fr))}.form.three>:first-child{grid-column:auto}}
 .form.loads{grid-template-columns:repeat(2,minmax(0,1fr))}
 @media (min-width:700px){.form.loads{grid-template-columns:repeat(4,minmax(0,1fr))}}
+
+/* ---------- blocks sized to the screen; no zoom on tap ---------- */
+.sheet .b{height:var(--bh,56px)}
+html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+html,body{max-width:100%;overflow-x:hidden;overscroll-behavior:none}
+@media (pointer:coarse){input,select,textarea{font-size:16px!important}}
+.sheetcard{scroll-margin-top:0}
+@media (max-height:640px) and (max-width:699px){
+  .sheet{gap:5px 5px}.hr .t{font-size:10px;line-height:1.1}
+  .daybar{padding:6px 16px 6px;gap:6px 16px}.daybar .day{font-size:22px}.daynav .btn{padding:5px 6px;min-height:36px}.daynav input[type=date]{min-height:36px;padding:5px 8px}
+  .canwork{min-height:0;padding:5px 10px}.canwork b{font-size:15px}.canwork small{display:none}
+  .readout{min-height:34px;padding:5px 10px}.card.sheetcard{padding:8px 8px;gap:8px!important}.wrap{gap:10px}
+}
