@@ -1,10 +1,10 @@
 /* Google Drive sync. No server: the app signs in with Google in the browser and keeps one sync file,
-   the document files and dated backup copies in a "Truck Work Diary" folder in the driver's own Drive.
+   the document files and dated backup copies in a "APS Logbook" folder in the driver's own Drive.
    Scope drive.file: the app can only see files it created itself. */
 (function () {
   'use strict';
   var WD = window.WD, K = 'workdiary.drive', OK = 'workdiary.oauth', SCOPE = 'https://www.googleapis.com/auth/drive.file';
-  var AUTH = 'https://accounts.google.com/o/oauth2/v2/auth', API = 'https://www.googleapis.com', FOLDER = 'Truck Work Diary', MAIN = 'sync.json', KEEP = 10;
+  var AUTH = 'https://accounts.google.com/o/oauth2/v2/auth', API = 'https://www.googleapis.com', FOLDER = 'APS Logbook', MAIN = 'sync.json', KEEP = 10;
   var cfg = { clientId: '', connected: false, token: '', exp: 0, folderId: '', fileId: '', version: '', hash: '', lastSync: 0, backupDay: '' };
   try { Object.assign(cfg, JSON.parse(localStorage.getItem(K) || '{}')); } catch (e) {}
   var busy = false, again = false, timer = null, state = 'off', note = '';

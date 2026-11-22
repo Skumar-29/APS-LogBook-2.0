@@ -1,6 +1,6 @@
 {
- "name": "Truck Work Diary",
- "short_name": "Work Diary",
+ "name": "APS Logbook: Truck Work Diary",
+ "short_name": "APS Logbook",
  "description": "Count work and rest time against the NHVR fatigue limits. A helper, not an approved Electronic Work Diary.",
  "start_url": "./",
  "scope": "./",

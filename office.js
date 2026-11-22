@@ -97,7 +97,7 @@
     o = o || {}; var v = esc(value == null ? '' : value), dis = o.disabled ? ' disabled' : '', h;
     if (o.options) h = '<select id="' + id + '"' + dis + '>' + o.options.map(function (x) { var a = Array.isArray(x) ? x : [x, x]; return '<option value="' + esc(a[0]) + '"' + (String(a[0]) === String(value == null ? '' : value) ? ' selected' : '') + '>' + esc(a[1]) + '</option>'; }).join('') + '</select>';
     else if (o.type === 'textarea') h = '<textarea id="' + id + '"' + dis + '>' + v + '</textarea>';
-    else h = '<input id="' + id + '" type="' + (o.type === 'number' ? 'text" inputmode="decimal' : o.type === 'digits' ? 'text" inputmode="numeric" pattern="[0-9]*' : o.type === 'tel' ? 'tel' : o.type || 'text') + '" value="' + v + '"' + (o.list ? ' list="' + o.list + '"' : '') + dis + ' autocomplete="off">';
+    else h = '<input id="' + id + '" type="' + (o.type === 'number' ? 'text" inputmode="decimal' : o.type === 'digits' ? 'text" inputmode="numeric" pattern="[0-9]*' : o.type === 'tel' ? 'tel' : o.type || 'text') + '" value="' + v + '"' + (o.list ? ' list="' + o.list + '"' : '') + (/licence$/.test(id) ? ' inputmode="numeric"' : /^fv-(pm|t[123]|accreditation)$/.test(id) ? ' autocapitalize="characters" autocorrect="off" spellcheck="false"' : '') + dis + ' autocomplete="off">';
     return '<label' + (o.cls ? ' class="' + o.cls + '"' : '') + '>' + esc(label) + h + (o.after || '') + '</label>';
   }
   function chk(id, label, value, dis) { return '<label class="chk"><input type="checkbox" id="' + id + '"' + (value ? ' checked' : '') + (dis ? ' disabled' : '') + '> ' + esc(label) + '</label>'; }
@@ -288,13 +288,16 @@
   function invoiceList() {
     var I = APS.invoices, st = O.invoiceSettings, q = ui.invSearch.toLowerCase();
     var list = O.invoices.filter(function (i) { return (i.invoiceNo + ' ' + i.billTo + ' ' + i.dateFrom).toLowerCase().indexOf(q) >= 0; }).sort(function (a, b) { return b.updatedAt.localeCompare(a.updatedAt); });
-    var h = '<div class="wrap">' + tabs('invoices') + '<div class="datebar"><div class="day">Invoices</div><button class="btn pri" id="iv-new">+ New invoice</button></div>'
+    var h = '<div class="wrap">' + tabs('invoices') + '<div class="datebar"><div class="day">Invoices</div><button class="btn pri" id="iv-new">+ New invoice</button></div><div class="tools"><button class="btn" id="iv-auto">+ Add my last trip from the diary</button></div>'
       + '<div class="form" style="grid-template-columns:1fr">' + fld('iv-search', 'Search invoices', ui.invSearch, { type: 'search' }) + '</div><div class="stack" id="iv-list">'
       + list.map(function (i) { return '<button class="card listbtn" data-inv="' + i.id + '"><span><b>Invoice ' + esc(i.invoiceNo) + '</b><small>' + esc(i.billTo || 'Bill to not set') + ' · ' + (APS.displayDate(i.dateFrom) || 'No period') + '</small></span><span class="chip ' + (i.status === 'Issued' ? 'ok' : '') + '">' + i.status + (i.revision > 1 ? ' · r' + i.revision : '') + '</span></button>'; }).join('')
       + (O.invoices.length ? (list.length ? '' : '<p class="hint">No invoice matches that search.</p>') : '<div class="card empty">No invoices yet. Tap “New invoice” to make your first one. Your business and bank details are remembered after that.</div>') + '</div>'
       + '<details class="card fold" id="iv-defaults"><summary>Default invoice details &amp; rates</summary><div class="form">' + INV_DETAILS.map(function (x) { return fld('df-' + x[0], x[1], st.profile[x[0]], { type: x[0] === 'mobile' ? 'tel' : x[0] === 'email' ? 'email' : 'text' }); }).join('') + '</div><h3 style="margin:14px 0 8px">Load rates</h3><div class="form">'
-      + st.types.map(function (t, n) { return fld('rt-' + n, t + (I.isCO(t) ? ' · fixed' : ' · per km'), st.typeRates[t], { type: 'number' }); }).join('') + '</div><div class="form" style="grid-template-columns:1fr;margin-top:12px">' + fld('df-types', 'Types (comma separated)', st.types.join(', ')) + fld('df-cities', 'City codes (comma separated)', st.cities.join(', ')) + '</div></details></div>';
+      + st.types.map(function (t, n) { return fld('rt-' + n, t + (I.isCO(t) ? ' · fixed' : ' · per km'), st.typeRates[t], { type: 'number' }); }).join('') + '</div><div class="form" style="grid-template-columns:1fr;margin-top:12px">' + fld('df-types', 'Types (comma separated)', st.types.join(', ')) + fld('df-cities', 'City codes (comma separated)', st.cities.join(', ')) + '</div></details>'
+      + (function () { var c = autoCfg(O), days = DOWN.map(function (d, i) { return [String(i), d]; }); return '<details class="card fold" id="iv-autoset" open><summary>Trips to invoice · my invoice week</summary><p class="hint">When you finish work, the app can ask if the trip is finished and put it on the right invoice.</p><div class="form">' + fld('au-start', 'My invoice week starts on', String(c.start), { options: days }) + fld('au-end', 'and ends on', String(c.end), { options: days }) + fld('au-ask', 'Ask when I finish work', c.ask ? '1' : '0', { options: [['1', 'Yes, ask me'], ['0', 'No, I add trips myself']] }) + '</div></details>'; })() + '</div>';
     main.innerHTML = h;
+    click('iv-auto', function () { tripAsk('', true); });
+    ['start', 'end', 'ask'].forEach(function (k) { on('au-' + k, 'change', function (e) { var v = e.target.value; quiet(mutate(function (w) { var a = Object.assign({}, w.invoiceSettings.auto); a[k] = k === 'ask' ? v === '1' : +v; w.invoiceSettings.auto = a; })); }); });
     click('iv-new', function () { var id = ''; quiet(mutate(function (w) { var i = I.newInvoice(w); id = i.id; w.invoices.push(i); w.invoiceSettings.nextInvoiceNo++; })).then(function () { if (id) { ui.inv = id; delete ui.open['iv-details']; draw('invoices'); main.scrollTop = 0; } }); });
     on('iv-search', 'input', function (e) { ui.invSearch = e.target.value; var p = e.target.selectionStart; draw('invoices'); var n = document.getElementById('iv-search'); n.focus(); try { n.setSelectionRange(p, p); } catch (x) {} });
     each('[data-inv]', function (b) { b.addEventListener('click', function () { ui.inv = b.dataset.inv; delete ui.open['iv-details']; draw('invoices'); main.scrollTop = 0; }); });
@@ -536,7 +539,72 @@
 
   /* ---------- entry points ---------- */
   var VIEWS = { invoices: viewInvoices, forms: viewForms, notes: viewNotes, documents: viewDocuments }, current = '';
+  /* ---------- trips to invoices: ask when work finishes, fill the invoice from the diary ---------- */
+  var DOWN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  function autoCfg(w) { var a = (w.invoiceSettings && w.invoiceSettings.auto) || {}; return { ask: a.ask !== false, start: a.start == null ? 1 : +a.start, end: a.end == null ? 6 : +a.end, type: a.type || '' }; }
+  function ordKey(k) { var p = String(k).split(':'); return p[0] + ':' + ('00' + p[1]).slice(-3); }
+  function changeKind(date, slot) { // 'start' = rest to work, 'end' = work to rest
+    var d = WD.S.days[date], s = d && d.s; if (!s) return '';
+    var prev = slot > 0 ? s[slot - 1] : ((WD.S.days[WD.keyOf(WD.dayNum(date) - 1)] || {}).s || '')[95] || 'r';
+    return s[slot] === 'w' && prev !== 'w' ? 'start' : s[slot] !== 'w' && prev === 'w' ? 'end' : '';
+  }
+  function invPeriod(date, cfg) { var n = WD.dayNum(date), dow = new Date(n * 864e5).getUTCDay(), from = n - ((dow - cfg.start + 7) % 7), len = (cfg.end - cfg.start + 7) % 7, to = from + len; if (to < n) { from = n; to = n - ((dow - cfg.start + 7) % 7) + 7 + len; } return { from: WD.keyOf(from), to: WD.keyOf(to) }; }
+  function draftFor(w, p, date) { return w.invoices.find(function (x) { return x.status === 'Draft' && x.dateFrom && x.dateTo && (x.dateTo === p.to || (x.dateFrom <= date && date <= x.dateTo)); }); }
+  function placeKey(p) { return String(p || '').toLowerCase().trim().split(',')[0].trim(); }
+  function tripAsk(endKey, manual) {
+    return load().then(function () {
+      attach(O); var I = APS.invoices, cfg = autoCfg(O); if (!manual && !cfg.ask) return;
+      var all = I.tripChoices(withDays(O), '0000-01-01', '9999-12-31');
+      var used = {}, lastEnd = ''; O.invoices.forEach(function (x) { x.loads.forEach(function (r) { if (r.sourceId) { var e = r.sourceId.split('|')[1]; used[e] = 1; if (ordKey(e) > lastEnd) lastEnd = ordKey(e); } }); });
+      if (!endKey) { var ends = all.filter(function (c) { return changeKind(c.date, c.slot) === 'end' && c.location && c.odometer && !used[c.key]; }); if (!ends.length) { toast('No finished trip was found. In the Diary, add the place and odometer where you stopped work.'); return; } endKey = ends[ends.length - 1].key; }
+      var end = all.find(function (c) { return c.key === endKey; });
+      if (!end || !end.location || !end.odometer) { if (manual) toast('Add the place and odometer where you stopped work first.'); return; }
+      if (used[endKey]) { if (manual) toast('That trip is already on an invoice.'); return; }
+      var cands = all.filter(function (c) { return ordKey(c.key) < ordKey(endKey) && ordKey(c.key) >= lastEnd && c.location && c.odometer && changeKind(c.date, c.slot) === 'start' && WD.dayNum(end.date) - WD.dayNum(c.date) <= 6 && Number(c.odometer) <= Number(end.odometer); });
+      if (!cands.length) { if (manual || O.invoices.length) toast('To put this trip on your invoice, add the place and odometer where the trip started in the Diary.', 7000); return; }
+      var st = O.invoiceSettings, code = function (p) { return I.cityFor(p, O.routeMap || {}); }, types = st.types.length ? st.types : ['BD'], rateOf = function (item) { return st.miscItemRates[item] || '50'; };
+      var yn = [['0', 'No'], ['1', 'Yes · 1'], ['2', 'Yes · 2'], ['3', 'Yes · 3'], ['4', 'Yes · 4']];
+      sheet('Trip finished?', '<p class="hint">If your trip ends here, the app puts it on your invoice with the places and odometers from your diary. You can still change anything on the invoice.</p>'
+        + '<div class="form" style="grid-template-columns:1fr">' + fld('ta-start', 'The trip started at', cands[0].key, { options: cands.map(function (c) { return [c.key, APS.displayDate(c.date) + ' ' + WD.clock(c.slot) + ' · ' + c.location + ' · ' + c.odometer]; }) }) + '</div>'
+        + '<div class="form tripform" style="margin-top:12px">' + fld('ta-from', 'From', '', { list: 'ta-cities' }) + fld('ta-to', 'To', code(end.location), { list: 'ta-cities' }) + '</div><datalist id="ta-cities">' + st.cities.map(function (c) { return '<option value="' + esc(c) + '">'; }).join('') + '</datalist>'
+        + '<div class="tripstats" style="margin-top:12px"><div><small>Start odometer</small><b id="ta-o1"></b></div><div><small>Finish odometer</small><b>' + esc(end.odometer) + '</b></div><div><small>Distance</small><b id="ta-km"></b></div></div>'
+        + '<div class="form tripform" style="margin-top:12px">' + fld('ta-type', 'Load type', types.indexOf(cfg.type) >= 0 ? cfg.type : types[0], { options: types }) + '<span></span>'
+        + fld('ta-pu', 'Pick-up on this trip?', '0', { options: yn }) + fld('ta-pur', 'Pick-up rate $', rateOf('Pick-up'), { type: 'number' }) + fld('ta-de', 'Delivery on this trip?', '0', { options: yn }) + fld('ta-der', 'Delivery rate $', rateOf('Delivery'), { type: 'number' }) + '</div>'
+        + '<p class="note" id="ta-per" style="margin-top:12px;border-color:var(--work);color:var(--ink)"></p><div class="tools" style="margin-top:12px"><button class="btn pri" id="ta-ok">Add to my invoice</button><button class="btn" id="ta-no">Trip not finished yet</button></div>', function (bd, close) {
+        var g = function (id) { return bd.querySelector(id); }, startOf = function () { return cands.find(function (c) { return c.key === g('#ta-start').value; }) || cands[0]; };
+        function sync(setFrom) {
+          var s = startOf(), p = invPeriod(s.date, cfg); if (setFrom) g('#ta-from').value = code(s.location);
+          g('#ta-o1').textContent = s.odometer; g('#ta-km').textContent = (Number(end.odometer) - Number(s.odometer)).toLocaleString('en-AU') + ' km';
+          var has = draftFor(O, p, s.date);
+          g('#ta-per').textContent = has ? 'Goes on your draft invoice ' + has.invoiceNo + ' (' + APS.displayDate(has.dateFrom) + ' to ' + APS.displayDate(has.dateTo) + ').' : 'A new invoice is started for ' + APS.displayDate(p.from) + ' to ' + APS.displayDate(p.to) + '.';
+        }
+        g('#ta-start').addEventListener('change', function () { sync(true); }); sync(true);
+        g('#ta-no').addEventListener('click', close);
+        g('#ta-ok').addEventListener('click', function () {
+          var s = startOf(), from = g('#ta-from').value.trim().toUpperCase(), to = g('#ta-to').value.trim().toUpperCase(), type = g('#ta-type').value, info = {};
+          var extra = [['Pick-up', +g('#ta-pu').value, g('#ta-pur').value.trim()], ['Delivery', +g('#ta-de').value, g('#ta-der').value.trim()]];
+          quiet(mutate(function (w) {
+            var row = I.tripLoad(withDays(w), s.key, endKey), c2 = autoCfg(w), p = invPeriod(row.loadDate, c2);
+            if (w.invoices.some(function (x) { return x.loads.some(function (r) { return r.sourceId === row.sourceId; }); })) throw Error('This diary trip is already on an invoice.');
+            w.routeMap = w.routeMap || {};
+            if (from) { if (from !== row.from) w.routeMap[placeKey(s.location)] = from; row.from = from; } if (to) { if (to !== row.to) w.routeMap[placeKey(end.location)] = to; row.to = to; }
+            [from, to].forEach(function (c) { if (c && c.length <= 4 && w.invoiceSettings.cities.indexOf(c) < 0) w.invoiceSettings.cities.push(c); });
+            row.type = type; row.rate = w.invoiceSettings.typeRates[type] || ''; if (I.isCO(type)) row.fixedAmount = row.rate;
+            try { Object.assign(row, I.calculateLoad(row)); } catch (e) { /* no rate yet: the row stays a draft */ }
+            var inv = draftFor(w, p, row.loadDate);
+            if (!inv) { inv = I.newInvoice(w); inv.dateFrom = p.from; inv.dateTo = p.to; inv.loads = []; w.invoices.push(inv); w.invoiceSettings.nextInvoiceNo++; info.fresh = true; }
+            if (inv.dateFrom > row.loadDate) inv.dateFrom = row.loadDate;
+            inv.loads = inv.loads.filter(I.activeLoad); inv.loads.push(row);
+            extra.forEach(function (x) { if (!(x[1] > 0)) return; var m = Object.assign(I.blankMisc(), { date: row.loadDate, item: x[0], quantity: String(x[1]), rate: x[2] }); try { Object.assign(m, I.calculateMisc(m)); } catch (e) {} inv.misc.push(m); if (x[2]) w.invoiceSettings.miscItemRates[x[0]] = x[2]; if (w.invoiceSettings.miscItems.indexOf(x[0]) < 0) w.invoiceSettings.miscItems.push(x[0]); });
+            w.invoiceSettings.auto = Object.assign({}, w.invoiceSettings.auto, { type: type }); inv.updatedAt = new Date().toISOString();
+            info.no = inv.invoiceNo; info.id = inv.id; info.noRate = !row.rate; info.route = row.from + ' to ' + row.to; info.km = row.km;
+          })).then(function () { if (!info.id) return; close(); toast(info.route + ', ' + Number(info.km).toLocaleString('en-AU') + ' km, added to invoice ' + info.no + '.' + (info.noRate ? ' Set the rate for this load type on the invoice once. It is remembered.' : ''), 8000); if (current === 'invoices') draw('invoices'); });
+        });
+      });
+    });
+  }
   window.WDOffice = {
+    tripAsk: tripAsk,
     views: Object.keys(VIEWS),
     render: function (view) {
       current = view;

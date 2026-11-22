@@ -4,7 +4,7 @@
   var ZONES = { ACT: 'Australia/Sydney', NSW: 'Australia/Sydney', VIC: 'Australia/Melbourne', QLD: 'Australia/Brisbane', SA: 'Australia/Adelaide', TAS: 'Australia/Hobart', NT: 'Australia/Darwin', WA: 'Australia/Perth' };
   var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var BLANK = new Array(D + 1).join('r');
-  var KEY = 'workdiary.v1', VERSION = '2.0.0';
+  var KEY = 'workdiary.v1', VERSION = '2.4.1';
   var HOSTED = !!(window.claude && window.claude.use); // true inside Claude, false on your own site
 
   /* ---------- state ---------- */
@@ -147,7 +147,7 @@
 
   /* ---------- rendering ---------- */
   var main = document.getElementById('main');
-  window.WD = { get S() { return S; }, esc: esc, main: main, toast: function (m) { toast(m); }, nowBase: nowBase, keyOf: keyOf, dayNum: dayNum, clock: clock, ZONES: ZONES, optOf: optOf, render: function () { if (!document.querySelector('.modal')) render(); }, fmtDay: fmtDay, absT: function (abs, ref) { return absT(abs, ref); }, addPlan: function (n, start, tpl) { snapshot(); for (var i = 0; i < tpl.length; i++) if (tpl[i]) setAbsRange(n, start + i, start + i + 1, 'w'); save(); }, touch: function () { touchSettings(); save(); },
+  window.WD = { get S() { return S; }, esc: esc, main: main, toast: function (m, t) { toast(m, t); }, nowBase: nowBase, keyOf: keyOf, dayNum: dayNum, clock: clock, ZONES: ZONES, optOf: optOf, render: function () { if (!document.querySelector('.modal')) render(); }, fmtDay: fmtDay, absT: function (abs, ref) { return absT(abs, ref); }, addPlan: function (n, start, tpl) { snapshot(); for (var i = 0; i < tpl.length; i++) if (tpl[i]) setAbsRange(n, start + i, start + i + 1, 'w'); save(); }, touch: function () { touchSettings(); save(); },
     // For the planner: records for the hours option in force today, history plus any planned days ahead
     planCtx: function () {
       var nw = nowBase(), A = analyseAll(nw.n), opt = optOf(nw.n), s = nw.n; while (s - 1 >= A.d0 && optOf(s - 1) === opt) s--;
@@ -222,10 +222,10 @@
       for (var q = 0; q < 4; q++) { i = h * 4 + q; cells += '<button type="button" class="b" data-i="' + i + '" tabindex="' + (i === 0 ? 0 : -1) + '" aria-label="' + clock(i) + '"></button>'; }
       cells += '</div></div>';
     }
-    var html = '<div class="wrap"><div class="datebar"><div class="day">' + fmtDay(n, true) + (n > nw.n ? ' <span class="chip">Plan</span>' : isToday ? ' <span class="chip ok">Today</span>' : '') + (bad ? ' <span class="chip bad">' + bad + ' issue' + (bad > 1 ? 's' : '') + '</span>' : w ? ' <span class="chip ok">Within limits</span>' : ' <span class="chip">No work</span>') + '</div>'
-      + '<button class="btn" id="prev" aria-label="Previous day">‹</button><button class="btn" id="today">Today</button><button class="btn" id="next" aria-label="Next day">›</button><input type="date" id="pick" aria-label="Go to date" value="' + keyOf(n) + '"></div>'
+    var html = '<div class="wrap"><div class="daybar" id="daybar"><div class="day">' + fmtDay(n, true) + (n > nw.n ? ' <span class="chip">Plan</span>' : isToday ? ' <span class="chip ok">Today</span>' : '') + (bad ? ' <span class="chip bad">' + bad + ' issue' + (bad > 1 ? 's' : '') + '</span>' : w ? ' <span class="chip ok">Within limits</span>' : ' <span class="chip">No work</span>') + (function () { var pg = pageOf(n); return pg ? ' <span class="chip" id="pgchip">' + (pg.no ? 'Book ' + esc(pg.no) + ' · ' : '') + 'Page ' + pg.page + '</span>' : ''; })() + '</div>'
+      + '<div class="daynav"><button class="btn" id="prev" aria-label="Previous day">‹</button><button class="btn" id="today">Today</button><input type="date" id="pick" aria-label="Go to date" value="' + keyOf(n) + '"><button class="btn" id="next" aria-label="Next day">›</button></div>' + (n >= nw.n && window.WDPlan && window.WDPlan.quick ? '<div class="canwork" id="canwork" role="status"><b>Checking…</b></div>' : '') + '</div>'
       + '<div class="cols"><div class="stack">'
-      + '<div class="card stack sheetcard" style="gap:12px"><div class="tools">' + optSelect('dayopt', opt) + '<button class="btn" id="addshift">Add shift</button>' + (window.WDOffice ? '<button class="btn" id="bookview">Book view</button><button class="btn" id="sendpages">Send pages</button>' : '') + '<button class="btn" id="copyprev">Copy yesterday</button><button class="btn" id="undo"' + (undo.length ? '' : ' disabled') + '>Undo</button><button class="btn danger" id="clear"' + (w ? '' : ' disabled') + '>Clear day</button></div>'
+      + '<div class="card stack sheetcard" style="gap:12px"><div class="dtools' + (window.WDOffice ? '' : ' five') + '">' + optSelect('dayopt', opt) + '<button class="btn" id="addshift">Add shift</button>' + (window.WDOffice ? '<button class="btn" id="bookview">Book view</button><button class="btn" id="sendpages">Send pages</button>' : '') + '<button class="btn" id="copyprev">Copy yesterday</button><button class="btn" id="undo"' + (undo.length ? '' : ' disabled') + '>Undo</button><button class="btn danger" id="clear"' + (w ? '' : ' disabled') + '>Clear day</button></div>'
       + '<div class="readout" id="readout"></div>'
       + '<div class="sheet" id="sheet" role="group" aria-label="15 minute blocks for ' + fmtDay(n) + '">' + cells + '</div>'
       + '<div class="legend"><span><i class="w"></i>Work</span><span><i></i>Rest</span><span><i class="n"></i>Night rest hours (10pm to 8am)</span>' + (opt === 'bfm' ? '<span><i class="l"></i>Long/night work</span>' : '') + '<span><i class="x"></i>Over a limit</span></div>'
@@ -235,9 +235,26 @@
       + '</div><div class="stack">'
       + '<div class="card"><h3>Checks for this day</h3><div class="issues">' + (function () { var dc = dstChange(n); return dc ? '<div class="issue warn"><b>Daylight saving</b>Clocks go ' + (dc > 0 ? 'forward' : 'back') + ' ' + hm(Math.abs(dc) / 15) + ' on this day in ' + esc(S.settings.base) + '. Keep recording in your base time and write the change in Comments. The app counts this day as 24 hours, so check your totals by hand.</div>' : ''; })() + dayNotes(n).map(function (x) { return '<div class="issue warn"><b>Finish your record</b>' + esc(x) + '</div>'; }).join('') + (dayF.length ? dayF.map(issueHTML).join('') : '<div class="clean">✓ ' + (w ? 'No limit is broken by this day\'s entries.' : 'No work recorded. Counted as rest.') + '</div>') + '</div></div>'
       + '<div class="card"><h3>' + (isToday ? 'Where you stand now' : 'Standing at the end of this day') + '</h3><div class="meters">' + metersHTML(st, n) + '</div></div>'
-      + '<div class="card form" style="grid-template-columns:1fr"><h3>Day details</h3><label>Number plate<input id="plate" value="' + esc(d.plate != null ? d.plate : S.settings.plate) + '" autocomplete="off"></label><label>Time of daily check (if your employer needs it)<input type="time" id="d-chk" value="' + esc(d.chk || '') + '"></label>' + (opt === 'std2' || opt === 'bfm2' ? '<label>Two-up driver name<input id="d-co" value="' + esc(d.co || '') + '" autocomplete="off"></label><label>Two-up driver licence number<input id="d-colic" value="' + esc(d.colic || '') + '" autocomplete="off"></label>' : '') + '<label class="chk" style="flex-direction:row"><input type="checkbox" id="d-fit"' + (d.fit ? ' checked' : '') + '> Fit for duty</label><label>Comments (delays, officer notes)<textarea id="note">' + esc(d.note || '') + '</textarea></label></div>'
+      + '<div class="card form" style="grid-template-columns:1fr"><h3>Day details</h3><label>Number plate<input id="plate" value="' + esc(d.plate != null ? d.plate : S.settings.plate) + '" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"></label><label>Time of daily check (if your employer needs it)<input type="time" id="d-chk" value="' + esc(d.chk || '') + '"></label>' + (opt === 'std2' || opt === 'bfm2' ? '<label>Two-up driver name<input id="d-co" value="' + esc(d.co || '') + '" autocomplete="off"></label><label>Two-up driver licence number<input id="d-colic" inputmode="numeric" value="' + esc(d.colic || '') + '" autocomplete="off"></label>' : '') + '<label class="chk" style="flex-direction:row"><input type="checkbox" id="d-fit"' + (d.fit ? ' checked' : '') + '> Fit for duty</label><label>Comments (delays, officer notes)<textarea id="note">' + esc(d.note || '') + '</textarea></label></div>'
       + '</div></div></div>';
     main.innerHTML = html;
+    var db = document.getElementById('daybar'); if (db) main.style.setProperty('--dbh', db.offsetHeight + 'px');
+    var cw = document.getElementById('canwork');
+    if (cw) setTimeout(function () {
+      if (!cw.isConnected) return; var q = null; try { q = window.WDPlan.quick(n); } catch (e) {}
+      if (!q) { cw.remove(); } else {
+        var cls = 'ok', top, sub;
+        if (q.planned) { cls = 'info'; top = hm(q.planned) + ' work is already in the diary for this shift'; sub = q.lnLeft != null ? 'Long/night left after it: ' + hm(q.lnLeft) : ''; }
+        else if (!q.work) { cls = 'bad'; top = 'You cannot work this day'; sub = q.stopWhy ? 'Reason: ' + q.stopWhy : ''; }
+        else {
+          if (q.work < 32) cls = 'warn';
+          top = 'You can work ' + hm(q.work) + (q.fromNow ? ' from now' : ' from ' + clock(q.firstS) + (q.nextDay ? ' (after midnight)' : ''));
+          sub = (q.ln ? 'Uses ' + [q.night ? hm(q.night) + ' night' : '', q.long ? hm(q.long) + ' long' : ''].filter(Boolean).join(' + ') : 'No long/night hours used') + (q.lnBefore != null ? ' · ' + hm(q.lnBefore) + ' long/night left before' : '') + (q.wait && q.waitWhy ? ' · starts late: ' + q.waitWhy : '') + (q.work < 56 && q.stopWhy ? ' · limit: ' + q.stopWhy : '');
+        }
+        cw.className = 'canwork ' + cls; cw.innerHTML = '<b>' + esc(top) + '</b>' + (sub ? '<small>' + esc(sub) + '</small>' : '');
+      }
+      if (db) main.style.setProperty('--dbh', db.offsetHeight + 'px');
+    }, 30);
     paintCells(n, A, isToday ? nw.i : -1);
     setReadout(null, w, lnc, opt);
     bindDiary(n, w, lnc, opt);
@@ -335,9 +352,9 @@
     on('copyprev', function () { snapshot(); var d = day(n); d.s = getS(n - 1); d.t = Date.now(); dirty(n); save(); renderDiary(); });
     on('addshift', function () { shiftDialog(n); });
     on('sendpages', function () { pagesDialog(n); });
-    on('bookview', function () { window.WDOffice.core().then(function (APS) { return window.WDOffice.preview('Diary-' + keyOf(n), [APS.diaryPage(diaryDay(n), null, null)]); }).catch(function (e) { toast((e && e.message) || 'The page could not be made.'); }); });
+    on('bookview', function () { window.WDOffice.core().then(function (APS) { return window.WDOffice.preview('Diary-' + keyOf(n), [pageSvg(APS, n)]); }).catch(function (e) { toast((e && e.message) || 'The page could not be made.'); }); });
     [['chk', 'value'], ['co', 'value'], ['colic', 'value'], ['fit', 'checked']].forEach(function (x) { var el = document.getElementById('d-' + x[0]); if (el) el.addEventListener('change', function () { day(n)[x[0]] = x[1] === 'checked' ? el.checked : el.value.trim(); day(n).t = Date.now(); dirty(n); save(); }); });
-    document.getElementById('plate').addEventListener('change', function (e) { day(n).plate = e.target.value.trim(); day(n).t = Date.now(); dirty(n); save(); });
+    document.getElementById('plate').addEventListener('change', function (e) { day(n).plate = e.target.value.trim().toUpperCase(); day(n).t = Date.now(); dirty(n); save(); });
     document.getElementById('note').addEventListener('change', function (e) { day(n).note = e.target.value; day(n).t = Date.now(); dirty(n); save(); });
     main.querySelectorAll('button[data-place]').forEach(function (b) { b.addEventListener('click', function () { placeDialog(n, +b.dataset.place); }); });
     main.querySelectorAll('input[data-ev]').forEach(function (inp) { inp.addEventListener('change', function () { var d = day(n); d.ev = d.ev || {}; d.ev[inp.dataset.ev] = d.ev[inp.dataset.ev] || {}; d.ev[inp.dataset.ev][inp.dataset.f] = inp.value.trim(); d.t = Date.now(); dirty(n); save(); }); });
@@ -398,10 +415,10 @@
   }
   function placeDialog(n, slot, opts) {
     opts = opts || {}; var done = opts.after || renderDiary;
-    var cur = ((S.days[keyOf(n)] || {}).ev || {})[slot] || {}, kind = cur.k || 'rest', saved = S.settings.places || [];
+    var cur = ((S.days[keyOf(n)] || {}).ev || {})[slot] || {}, kind = cur.k || 'town', saved = S.settings.places || [];
     modal('<h2>' + esc(opts.title || 'Place at ' + clock(slot)) + '</h2>' + (opts.odo ? '<div class="form" style="grid-template-columns:1fr"><label>Odometer<input id="pk-odo" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="' + esc(cur.o || '') + '" placeholder="Odometer reading"></label></div>' : '') + '<p class="hint">' + (opts.odo ? 'Then choose the place: a rest area, truck stop, fuel station, suburb or town.' : 'Record the name of the place where you changed between work and rest: a rest area, truck stop, fuel station, suburb or town.') + '</p>'
       + '<div class="kinds" id="pk-k">' + Object.keys(KINDS).map(function (k) { return '<button type="button" data-k="' + k + '">' + KINDS[k] + '</button>'; }).join('') + '</div>'
-      + (HOSTED || !navigator.geolocation ? '' : '<div class="tools"><button type="button" class="btn pri" id="pk-gps">Find places near me</button><span class="hint" id="pk-s" role="status"></span></div>')
+      + (HOSTED || !navigator.geolocation ? '' : '<div class="pkgps"><button type="button" class="btn pri" id="pk-gps">Find places near me</button><span class="hint" id="pk-s" role="status"></span></div>')
       + '<input type="search" id="pk-q" placeholder="Type the name" autocomplete="off" value="' + esc(cur.p || '') + '"><div class="plist" id="pk-l"></div>'
       + '<div class="acts">' + (cur.p ? '<button class="btn danger" id="pk-x">Remove place</button>' : '') + (opts.odo ? '<button class="btn" id="pk-skip">Save without place</button>' : '<button class="btn" data-x>Cancel</button>') + '</div>', function (box, close) {
       var q = box.querySelector('#pk-q'), list = box.querySelector('#pk-l'), near = nearCache && Date.now() - nearCache.t < 180000 ? nearCache.items : null, gps = box.querySelector('#pk-gps'), stat = box.querySelector('#pk-s');
@@ -449,6 +466,46 @@
   }
 
   // Diary pages as a PDF in the work diary sheet layout, one day per page (the original APS Logbook page)
+  /* ---------- real work diary book and page numbers ---------- */
+  function pageOf(n) {
+    var books = S.settings.books || [], k = keyOf(n), b = null; books.forEach(function (x) { if (x.d <= k && (!b || x.d > b.d)) b = x; });
+    if (!b) return null;
+    var n0 = dayNum(b.d), page = b.p;
+    if (S.settings.pageSkip) { if (getS(n).indexOf('w') < 0) return null; for (var i = n0; i < n; i++) if (getS(i).indexOf('w') >= 0) page++; } else page += n - n0;
+    return { no: b.no || '', page: page };
+  }
+  function pageSvg(APS, n) { var pg = pageOf(n); return APS.diaryPage(diaryDay(n), pg ? { number: String(pg.page), status: 'Active' } : null, pg && pg.no ? { number: pg.no } : null); }
+  /* ---------- saved trucks and trailers, capital letters, suggestions ---------- */
+  var REGO = { 'plate': 'truck', 's-plate': 'truck', 'su-plate': 'truck', 'fv-pm': 'truck', 'fv-t1': 'trailer', 'fv-t2': 'trailer', 'fv-t3': 'trailer' }, UPPER = { 's-accr': 1, 's-book': 1, 'fv-accreditation': 1, 'ta-from': 1, 'ta-to': 1 };
+  function regoKey(v) { return String(v).toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+  function regos(kind) { var r = S.settings.regos || (S.settings.regos = { truck: [], trailer: [] }); if (!r[kind]) r[kind] = []; return r[kind]; }
+  function addRego(kind, v) {
+    v = String(v || '').trim().toUpperCase().replace(/\s+/g, ' '); var key = regoKey(v); if (key.length < 3) return;
+    var L = regos(kind), at = -1; L.forEach(function (x, i) { if (regoKey(x) === key) at = i; });
+    if (at === 0) return; if (at > 0) L.splice(at, 1); L.unshift(v); if (L.length > 80) L.length = 80; touchSettings(); save();
+  }
+  var sugBox = null, sugFor = null;
+  function sugHide() { if (sugBox) { sugBox.remove(); sugBox = null; sugFor = null; } }
+  function sugShow(el) {
+    var kind = REGO[el.id]; if (!kind || el.disabled || el.readOnly) return;
+    var key = regoKey(el.value), L = regos(kind).filter(function (x) { var k = regoKey(x); return k.indexOf(key) === 0 && k !== key; }).slice(0, 6);
+    sugHide(); if (!L.length) return;
+    var r = el.getBoundingClientRect(); sugBox = document.createElement('div'); sugBox.className = 'sug'; sugFor = el;
+    sugBox.style.left = r.left + 'px'; sugBox.style.width = r.width + 'px'; if (r.bottom + 230 > window.innerHeight && r.top > 240) sugBox.style.bottom = (window.innerHeight - r.top + 4) + 'px'; else sugBox.style.top = (r.bottom + 4) + 'px';
+    sugBox.innerHTML = L.map(function (x) { return '<button type="button">' + esc(x) + '</button>'; }).join('');
+    sugBox.addEventListener('pointerdown', function (e) { var b = e.target.closest('button'); if (!b) return; e.preventDefault(); var t = sugFor; t.value = b.textContent; sugHide(); t.dispatchEvent(new Event('input', { bubbles: true })); t.dispatchEvent(new Event('change', { bubbles: true })); sugHide(); });
+    document.body.appendChild(sugBox);
+  }
+  document.addEventListener('input', function (e) {
+    var el = e.target, id = el && el.id; if (!id || !(REGO[id] || UPPER[id])) return;
+    var up = el.value.toUpperCase(); if (up !== el.value) { var p = el.selectionStart; el.value = up; try { el.setSelectionRange(p, p); } catch (x) {} }
+    if (REGO[id]) sugShow(el);
+  }, true);
+  document.addEventListener('change', function (e) { var el = e.target, id = el && el.id; if (!id) return; if (REGO[id] || UPPER[id]) el.value = el.value.trim().toUpperCase(); if (REGO[id]) addRego(REGO[id], el.value); }, true);
+  document.addEventListener('focusin', function (e) { if (e.target && REGO[e.target.id]) sugShow(e.target); });
+  document.addEventListener('focusout', function (e) { if (e.target === sugFor) setTimeout(function () { if (document.activeElement !== sugFor) sugHide(); }, 150); });
+  document.addEventListener('scroll', function (e) { if (sugBox && !(e.target && e.target.closest && e.target.closest('.sug'))) sugHide(); }, true);
+  window.addEventListener('resize', sugHide);
   function diaryDay(n) {
     var k = keyOf(n), d = S.days[k] || {}, s = getS(n), opt = optOf(n), ev = d.ev || {}, changes = {}, plate = d.plate != null && d.plate !== '' ? d.plate : S.settings.plate || '';
     Object.keys(ev).forEach(function (sl) { if (ev[sl] && (ev[sl].p || ev[sl].o)) changes[sl] = { slot: +sl, location: ev[sl].p || '', odometer: ev[sl].o || '', restType: 'stationary', note: '', vehicle: plate }; });
@@ -466,7 +523,7 @@
       box.querySelector('#pg-ok').addEventListener('click', function () {
         var c = span(); if (c < 1 || c > 31) return; var a0 = dayNum(A.value), name = 'Diary-' + A.value + (c > 1 ? '-to-' + B.value : '');
         if (!S.settings.name) toast('Tip: add your name and licence number under More so they print on the pages.', 6000);
-        close(); window.WDOffice.core().then(function (APS) { var pages = []; for (var i = 0; i < c; i++) pages.push(APS.diaryPage(diaryDay(a0 + i), null, null)); return window.WDOffice.preview(name, pages); }).catch(function (e) { toast((e && e.message) || 'The pages could not be made.'); });
+        close(); window.WDOffice.core().then(function (APS) { var pages = []; for (var i = 0; i < c; i++) pages.push(pageSvg(APS, a0 + i)); return window.WDOffice.preview(name, pages); }).catch(function (e) { toast((e && e.message) || 'The pages could not be made.'); });
       });
     });
   }
@@ -514,7 +571,7 @@
   function alertUser(key, msg) {
     if (alerted[key] || S.settings.alerts === false) return; alerted[key] = 1; toast(msg, 20000);
     try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) {}
-    try { if (document.hidden && window.Notification && Notification.permission === 'granted') new Notification('Work Diary', { body: msg, tag: key }); } catch (e) {}
+    try { if (document.hidden && window.Notification && Notification.permission === 'granted') new Notification('APS Logbook', { body: msg, tag: key }); } catch (e) {}
   }
   function checkAlerts() { // runs once a minute while the app is open
     if (S.settings.alerts === false) return; var nw = nowBase();
@@ -572,7 +629,7 @@
       if (S.live) {
         snapshot(); tickLive(); S.live = null; touchSettings(); save();
         var rn = x.i === D - 1 ? x.n + 1 : x.n, ri = (x.i + 1) % D;
-        return placeDialog(rn, ri, { odo: true, auto: true, title: 'Rest starts at ' + clock(ri), after: renderNow });
+        return placeDialog(rn, ri, { odo: true, auto: true, title: 'Rest starts at ' + clock(ri), after: function () { renderNow(); if (window.WDOffice && window.WDOffice.tripAsk) setTimeout(function () { window.WDOffice.tripAsk(keyOf(rn) + ':' + ri, false).catch(function () {}); }, 250); } });
       }
       coachGate(x.n, x.i, x.i + 1, function (st2) {
         if (st2 !== x.i) return; snapshot(); S.live = { n: x.n, i: x.i }; setRange(x.n, x.i, x.i + 1, 'w'); touchSettings(); save();
@@ -628,15 +685,25 @@
   function renderMore() {
     var st = S.settings, c = st.custom;
     main.innerHTML = '<div class="wrap"><div class="cols"><div class="stack"><div class="card"><h3>Driver and base</h3><div class="form">'
-      + '<label>Driver name<input id="s-name" value="' + esc(st.name) + '" autocomplete="name"></label><label>Usual number plate<input id="s-plate" value="' + esc(st.plate) + '" autocomplete="off"></label><label>Licence number (printed on diary pages)<input id="s-licence" value="' + esc(st.licence || '') + '" autocomplete="off"></label>'
+      + '<label>Driver name<input id="s-name" value="' + esc(st.name) + '" autocomplete="name"></label><label>Usual number plate<input id="s-plate" value="' + esc(st.plate) + '" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"></label><label>Licence number (printed on diary pages)<input id="s-licence" inputmode="numeric" value="' + esc(st.licence || '') + '" autocomplete="off"></label>'
       + '<label>Base state (time zone)<select id="s-base">' + Object.keys(ZONES).map(function (z) { return '<option' + (z === st.base ? ' selected' : '') + '>' + z + '</option>'; }).join('') + '</select></label>'
       + '<label>Usual hours option' + optSelect('s-opt', st.opt) + '</label>'
-      + '<label>Accreditation number (BFM, AFM, ACA)<input id="s-accr" value="' + esc(st.accr) + '" autocomplete="off"></label>'
+      + '<label>Accreditation number (BFM, AFM, ACA)<input id="s-accr" value="' + esc(st.accr) + '" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"></label>'
       + '<label>Clock<select id="s-clock"><option value="24"' + (st.clock == 24 ? ' selected' : '') + '>24-hour (20:00)</option><option value="12"' + (st.clock == 12 ? ' selected' : '') + '>12-hour (8pm)</option></select></label>'
       + '<label>Alerts while the app is open<select id="s-alerts"><option value="1"' + (st.alerts !== false ? ' selected' : '') + '>On: warn 30 minutes before a limit, and when a rest is complete</option><option value="0"' + (st.alerts === false ? ' selected' : '') + '>Off</option></select></label>'
       + '<label>Smart tips<select id="s-tips"><option value="1"' + (st.tips !== false ? ' selected' : '') + '>On: suggest better rest and start times</option><option value="0"' + (st.tips === false ? ' selected' : '') + '>Off</option></select></label>'
       + (HOSTED ? '' : '<label>Screen<select id="s-theme"><option value="auto"' + (st.theme === 'auto' ? ' selected' : '') + '>Follow the phone</option><option value="night"' + (st.theme === 'night' ? ' selected' : '') + '>Dark from 7pm to 6am</option><option value="dark"' + (st.theme === 'dark' ? ' selected' : '') + '>Always dark</option><option value="light"' + (st.theme === 'light' ? ' selected' : '') + '>Light</option></select></label>') + '</div>'
       + (S.settings.base === 'WA' || S.settings.base === 'NT' ? '<p class="note warn" style="margin-top:12px">WA and the NT have their own fatigue rules. The limits in this app are the national (HVNL) rules, which apply in the other states and the ACT.</p>' : '') + '</div>'
+      + (function () {
+        var bk = (st.books || []).slice().sort(function (x, y) { return x.d < y.d ? 1 : -1; }), cur = pageOf(nowBase().n), rg = st.regos || {};
+        var chips = function (kind, label) { var L = rg[kind] || []; return '<div><small class="hint">' + label + '</small><div class="regolist">' + (L.length ? L.map(function (x, i) { return '<span class="chip">' + esc(x) + '<button type="button" class="chipx" data-rgx="' + kind + ':' + i + '" aria-label="Remove ' + esc(x) + '">×</button></span>'; }).join('') : '<span class="hint">None saved yet. They are saved when you type them.</span>') + '</div></div>'; };
+        return '<div class="card"><h3>My work diary book</h3><p class="hint">Enter the number of your paper work diary and the page you are on. The app then counts the page for every day after that, and prints both on the diary pages.</p>'
+          + (cur ? '<p class="note" style="border-color:var(--work);color:var(--ink);margin:10px 0">Today: ' + (cur.no ? 'book ' + esc(cur.no) + ', ' : '') + 'page ' + cur.page + '</p>' : '')
+          + '<div class="form" style="margin-top:10px"><label>Work diary number<input id="s-book" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="' + esc(bk.length ? bk[0].no || '' : '') + '"></label><label>Page number<input id="s-page" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="54"></label><label>That page is for this day<input id="s-pdate" type="date" value="' + keyOf(nowBase().n) + '"></label>'
+          + '<label>Days with no work<select id="s-pskip"><option value="0"' + (st.pageSkip ? '' : ' selected') + '>Use a page every day</option><option value="1"' + (st.pageSkip ? ' selected' : '') + '>Do not use a page</option></select></label></div><div class="tools" style="margin-top:12px"><button class="btn pri" id="s-booksave">Save page number</button></div>'
+          + (bk.length ? '<div class="stack" style="gap:6px;margin-top:12px">' + bk.map(function (x) { return '<div class="bookrow"><span>From ' + fmtDay(dayNum(x.d), true) + ': ' + (x.no ? 'book ' + esc(x.no) + ', ' : '') + 'page ' + x.p + '</span><button class="btn sm danger" data-bkx="' + x.d + '">Remove</button></div>'; }).join('') + '</div><p class="hint" style="margin-top:8px">New book, or the count is wrong? Save a new line with the right day and page. Days before it keep their old numbers.</p>' : '') + '</div>'
+          + '<div class="card stack" style="gap:10px"><h3>Saved trucks and trailers</h3>' + chips('truck', 'Trucks') + chips('trailer', 'Trailers') + '</div>';
+      })()
       + '<div class="card"><h3>AFM / ACH limits from your certificate</h3><div class="form">'
       + '<label>Most work in 24 hours (h)<input type="number" id="c-dayWork" min="1" max="24" step="0.25" value="' + c.dayWork + '"></label><label>Least continuous rest in 24 hours (h)<input type="number" id="c-dayRest" min="0" max="24" step="0.25" value="' + c.dayRest + '"></label>'
       + '<label>Most work in 7 days (h, 0 = none)<input type="number" id="c-w7" min="0" max="168" value="' + c.w7 + '"></label><label>Most work in 14 days (h, 0 = none)<input type="number" id="c-w14" min="0" max="336" value="' + c.w14 + '"></label>'
@@ -647,13 +714,21 @@
       + '<p class="hint">' + Object.keys(S.days).filter(function (k) { return S.days[k].s && S.days[k].s.indexOf('w') >= 0; }).length + ' days with work recorded.</p></div>'
       + (window.WDDrive ? window.WDDrive.card() : '') + '<div class="card"><h3>About</h3><p class="note warn">This is a counting helper, not an approved Electronic Work Diary. You must still fill in your written work diary (or an NHVR approved EWD). Limits are outer limits: do not drive if you are tired.</p><p class="hint" style="margin-top:10px">Rules follow the NHVR National Driver Work Diary, version 1.4 (2026), Parts 3 and 4.</p>' + (HOSTED ? '' : '<p class="hint" style="margin-top:10px">Place lookup reads your location only when you tap “Find places near me”. Your position is sent to OpenStreetMap services to get nearby names. Map data © OpenStreetMap contributors.</p><p class="hint" style="margin-top:10px">Version ' + VERSION + '</p>') + '</div></div></div></div>';
     function bind(id, fn) { document.getElementById(id).addEventListener('change', function (e) { fn(e.target.value); touchSettings(); save(); render(); }); }
-    bind('s-name', function (v) { st.name = v.trim(); }); bind('s-plate', function (v) { st.plate = v.trim(); }); bind('s-licence', function (v) { st.licence = v.trim(); }); bind('s-base', function (v) { st.base = v; });
-    bind('s-opt', function (v) { st.opt = v; }); bind('s-accr', function (v) { st.accr = v.trim(); }); bind('s-clock', function (v) { st.clock = +v; }); bind('s-tips', function (v) { st.tips = v === '1'; }); bind('s-alerts', function (v) { st.alerts = v === '1'; if (st.alerts && window.Notification && Notification.permission === 'default') { try { Notification.requestPermission(); } catch (e) {} } });
+    bind('s-name', function (v) { st.name = v.trim(); }); bind('s-plate', function (v) { st.plate = v.trim().toUpperCase(); }); bind('s-licence', function (v) { st.licence = v.trim(); }); bind('s-base', function (v) { st.base = v; });
+    bind('s-opt', function (v) { st.opt = v; }); bind('s-accr', function (v) { st.accr = v.trim().toUpperCase(); }); bind('s-clock', function (v) { st.clock = +v; }); bind('s-tips', function (v) { st.tips = v === '1'; }); bind('s-alerts', function (v) { st.alerts = v === '1'; if (st.alerts && window.Notification && Notification.permission === 'default') { try { Notification.requestPermission(); } catch (e) {} } });
+    bind('s-pskip', function (v) { st.pageSkip = v === '1'; });
+    on('s-booksave', function () {
+      var no = document.getElementById('s-book').value.trim().toUpperCase(), p = parseInt(document.getElementById('s-page').value, 10), d = document.getElementById('s-pdate').value;
+      if (!(p > 0)) return toast('Enter the page number.'); if (!d) return toast('Choose the day for that page.');
+      st.books = (st.books || []).filter(function (x) { return x.d !== d; }).concat([{ d: d, no: no, p: p }]); touchSettings(); save(); render(); toast('Saved. Page ' + p + ' is ' + fmtDay(dayNum(d)) + '.');
+    });
+    main.querySelectorAll('[data-bkx]').forEach(function (b) { b.addEventListener('click', function () { st.books = (st.books || []).filter(function (x) { return x.d !== b.dataset.bkx; }); touchSettings(); save(); render(); }); });
+    main.querySelectorAll('[data-rgx]').forEach(function (b) { b.addEventListener('click', function () { var q = b.dataset.rgx.split(':'); regos(q[0]).splice(+q[1], 1); touchSettings(); save(); render(); }); });
     if (!HOSTED) bind('s-theme', function (v) { st.theme = v; applyTheme(); });
     ['dayWork', 'dayRest', 'w7', 'w14', 'w28'].forEach(function (k) { bind('c-' + k, function (v) { c[k] = Math.max(0, +v || 0); }); });
     var json = function () { return JSON.stringify({ app: 'work-diary', v: 1, exported: new Date().toISOString(), settings: S.settings, days: S.days }); };
     on('exp', function () {
-      var name = 'work-diary-backup-' + keyOf(nowBase().n) + '.json';
+      var name = 'aps-logbook-backup-' + keyOf(nowBase().n) + '.json';
       if (!HOSTED && window.WDOffice) { window.WDOffice.exportData().catch(function () { return {}; }).then(function (x) { var full = JSON.parse(json()); full.office = x.office; full.files = x.files; var u2 = URL.createObjectURL(new Blob([JSON.stringify(full)], { type: 'application/json' })), l2 = document.createElement('a'); l2.href = u2; l2.download = name; document.body.appendChild(l2); l2.click(); l2.remove(); setTimeout(function () { URL.revokeObjectURL(u2); }, 60000); toast('Backup file saved. It includes your diary, paperwork and documents.'); S.settings.lastBackup = Date.now(); touchSettings(); save(); }); return; }
       if (!HOSTED) { try { var u = URL.createObjectURL(new Blob([json()], { type: 'application/json' })), l = document.createElement('a'); l.href = u; l.download = name; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000); toast('Backup file saved to your downloads.'); } catch (e) { backupDialog(json()); } return; }
       (window.claude && window.claude.use ? window.claude.use('downloads') : Promise.resolve(null)).then(function (dl) {
@@ -704,7 +779,7 @@
   if (!HOSTED && !S.settings.setup) {
     if (S.settings.name || firstDay() !== null) { S.settings.setup = true; }
     else setTimeout(function () {
-      modal('<h2>Set up your diary</h2><p class="hint">Four quick answers. You can change them later under More.</p><div class="form" style="grid-template-columns:1fr"><label>Your name<input id="su-name" autocomplete="name"></label><label>Base state (time zone)<select id="su-base">' + Object.keys(ZONES).map(function (z) { return '<option' + (z === S.settings.base ? ' selected' : '') + '>' + z + '</option>'; }).join('') + '</select></label><label>Hours option' + optSelect('su-opt', S.settings.opt) + '</label><label>Usual number plate<input id="su-plate" autocomplete="off"></label></div><div class="acts"><button class="btn" data-x>Later</button><button class="btn pri" id="su-ok">Save</button></div>', function (box, close) {
+      modal('<h2>Set up your diary</h2><p class="hint">Four quick answers. You can change them later under More.</p><div class="form" style="grid-template-columns:1fr"><label>Your name<input id="su-name" autocomplete="name"></label><label>Base state (time zone)<select id="su-base">' + Object.keys(ZONES).map(function (z) { return '<option' + (z === S.settings.base ? ' selected' : '') + '>' + z + '</option>'; }).join('') + '</select></label><label>Hours option' + optSelect('su-opt', S.settings.opt) + '</label><label>Usual number plate<input id="su-plate" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"></label></div><div class="acts"><button class="btn" data-x>Later</button><button class="btn pri" id="su-ok">Save</button></div>', function (box, close) {
         box.querySelector('#su-ok').addEventListener('click', function () { var q = function (id) { return box.querySelector(id).value.trim(); }; S.settings.name = q('#su-name'); S.settings.base = q('#su-base'); S.settings.opt = q('#su-opt'); S.settings.plate = q('#su-plate'); S.settings.setup = true; touchSettings(); save(); close(); render(); });
       });
     }, 300);
@@ -717,5 +792,5 @@
       navigator.serviceWorker.addEventListener('controllerchange', function () { if (hadSW) toast('App updated. Close and open it again to use the new version.'); });
     }
   }
-  window.__wd = { S: S, loadExample: loadExample, render: render };
+  window.__wd = { S: S, loadExample: loadExample, render: render, pageOf: pageOf, pageSvg: pageSvg };
 })();

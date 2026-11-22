@@ -248,3 +248,71 @@ a.btn{text-decoration:none;color:inherit}
 
 .cols>*{min-width:0}
 .frow td:first-child{white-space:nowrap}
+
+/* ---------- diary: fixed day bar and aligned tools ---------- */
+.daybar{position:sticky;top:0;z-index:8;background:var(--bg);margin:-16px -16px 0;padding:12px 16px 10px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;border-bottom:1px solid var(--line)}
+.daybar .day{font-family:var(--f-display);font-weight:700;font-size:30px;line-height:1;letter-spacing:.02em;text-transform:uppercase;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;flex:1 1 260px}
+.daynav{display:grid;grid-template-columns:52px minmax(0,1fr) minmax(0,1.5fr) 52px;gap:8px;flex:1 1 320px;max-width:560px}
+.daynav .btn{padding:9px 6px;font-size:18px}.daynav #today{font-size:16px}
+.daynav input[type=date]{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px;min-height:42px;width:100%;min-width:0;text-align:center}
+.readout{top:var(--dbh,0px)}
+.dtools{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.dtools>*{grid-column:span 2;min-width:0;width:100%}
+.dtools>select{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 10px;min-height:42px}
+.dtools>:nth-child(1),.dtools>:nth-child(2),.dtools>:nth-child(6),.dtools>:nth-child(7){grid-column:span 3}
+.dtools.five>:nth-child(3),.dtools.five>:nth-child(4),.dtools.five>:nth-child(5){grid-column:span 2}
+.dtools.five>:nth-child(6),.dtools.five>:nth-child(7){grid-column:span 2}
+@media (max-width:559px){.daybar{margin:-16px -16px 0;padding:10px 16px 8px}.daybar .day{font-size:26px;flex-basis:100%}.daynav{max-width:none;flex-basis:100%}.dtools .btn{padding:6px 2px;font-size:14.5px}}
+@media (min-width:900px){.dtools{display:flex;flex-wrap:wrap}.dtools>*,.dtools>:nth-child(n){width:auto;flex:1 1 auto}}
+
+/* ---------- place picker: even type buttons ---------- */
+.kinds{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.kinds button{grid-column:span 2;border-radius:10px;padding:8px 4px;min-height:44px;font-size:15px;line-height:1.15;text-align:center;min-width:0}
+.kinds button:nth-child(4),.kinds button:nth-child(5){grid-column:span 3}
+.pkgps{display:grid;gap:6px;margin:10px 0}.pkgps .btn{width:100%}.pkgps .hint:empty{display:none}
+
+/* ---------- trip planner ---------- */
+.tripbtns{display:grid;grid-template-columns:2fr 1fr;gap:8px}.tripbtns .btn{width:100%}
+#pl-route{width:100%}
+.tripform{grid-template-columns:1fr 1fr!important;gap:10px 12px}.tripform input{width:100%;min-width:0}
+.tripres{border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:4px;font-size:17px;line-height:1.3}
+.tripres.ok{background:var(--ok-bg);color:var(--ok)}.tripres.bad{background:var(--bad-bg);color:var(--bad)}.tripres small{font-size:13px;color:var(--muted)}
+.tripstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.tripstats>div{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface2);display:flex;flex-direction:column}
+.tripstats small{color:var(--muted);font-size:12.5px}.tripstats b{font-family:var(--f-display);font-size:22px;letter-spacing:.02em}
+.tripsteps{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.tripsteps li{border-left:5px solid var(--line);padding:6px 0 6px 12px;display:flex;flex-direction:column;gap:1px}
+.tripsteps li.w{border-color:var(--work)}.tripsteps li.e{border-color:var(--ok)}
+.tripsteps .when{font-size:13.5px;color:var(--muted)}.tripsteps b{font-size:17px}.tripsteps small{font-size:13.5px;color:var(--muted)}
+.triptips{margin:8px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.rtcheck{display:flex!important;flex-direction:row!important;align-items:center;gap:10px}.rtcheck input{width:22px;height:22px;flex:0 0 auto}
+.tripform+.hint{margin-top:10px}
+
+/* ---------- capital-letter fields, saved rego suggestions, book rows ---------- */
+#plate,#s-plate,#su-plate,#s-accr,#s-book,#fv-pm,#fv-t1,#fv-t2,#fv-t3,#fv-accreditation{text-transform:uppercase}
+#plate::placeholder,#s-plate::placeholder,#su-plate::placeholder,#s-book::placeholder{text-transform:none}
+.sug{position:fixed;z-index:1000;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.22);max-height:230px;overflow:auto;display:flex;flex-direction:column}
+.sug button{border:0;border-bottom:1px solid var(--line);background:none;color:var(--ink);text-align:left;padding:12px 14px;font:600 17px var(--f-body);letter-spacing:.04em;cursor:pointer;min-height:46px}
+.sug button:last-child{border-bottom:0}.sug button:active{background:var(--surface2)}
+.regolist{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.regolist .chip{font-size:14px;padding:4px 4px 4px 10px}
+.chipx{border:0;background:none;color:var(--muted);font-size:18px;line-height:1;padding:2px 6px;cursor:pointer}
+.bookrow{display:flex;align-items:center;gap:10px;justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface2)}
+#ta-from,#ta-to{text-transform:uppercase}
+
+/* ---------- diary: quick "can I work this day" strip ---------- */
+.canwork{flex:1 1 100%;border-radius:8px;padding:7px 12px;display:flex;flex-direction:column;gap:1px;min-height:52px;justify-content:center;background:var(--surface2);border-left:5px solid var(--line)}
+.canwork b{font-size:16.5px;line-height:1.25}.canwork small{font-size:13px;color:var(--muted);line-height:1.3}
+.canwork.ok{background:var(--ok-bg);border-color:var(--ok)}.canwork.ok b{color:var(--ok)}
+.canwork.warn{background:var(--warn-bg);border-color:var(--warn)}.canwork.warn b{color:var(--warn)}
+.canwork.bad{background:var(--bad-bg);border-color:var(--bad)}.canwork.bad b{color:var(--bad)}
+.canwork.info{border-color:var(--work)}
+
+/* ---------- date and time boxes stay inside their column (iPhone) ---------- */
+input[type=date],input[type=time],input[type=datetime-local]{-webkit-appearance:none;appearance:none;min-width:0;max-width:100%;width:100%;box-sizing:border-box;display:block;line-height:1.3;font:inherit;color:var(--ink)}
+input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and-time-value,input[type=datetime-local]::-webkit-date-and-time-value{text-align:left;margin:0;min-height:1.3em}
+.daynav input[type=date]::-webkit-date-and-time-value{text-align:center}
+.form>*,.form label,.tripform>*,.daynav>*{min-width:0}
+.form.three{grid-template-columns:1fr 1fr}.form.three>:first-child{grid-column:1/-1}
+@media (min-width:640px){.form.three{grid-template-columns:repeat(3,minmax(0,1fr))}.form.three>:first-child{grid-column:auto}}
+.form.loads{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (min-width:700px){.form.loads{grid-template-columns:repeat(4,minmax(0,1fr))}}
