@@ -4,7 +4,7 @@
   var ZONES = { ACT: 'Australia/Sydney', NSW: 'Australia/Sydney', VIC: 'Australia/Melbourne', QLD: 'Australia/Brisbane', SA: 'Australia/Adelaide', TAS: 'Australia/Hobart', NT: 'Australia/Darwin', WA: 'Australia/Perth' };
   var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var BLANK = new Array(D + 1).join('r');
-  var KEY = 'workdiary.v1', VERSION = '2.5.1';
+  var KEY = 'workdiary.v1', VERSION = '2.6.0';
   var HOSTED = !!(window.claude && window.claude.use); // true inside Claude, false on your own site
 
   /* ---------- state ---------- */
@@ -289,9 +289,26 @@
       + '<line x1="' + X0 + '" y1="' + yW + '" x2="' + (X0 + 96 * CW) + '" y2="' + yW + '" stroke="var(--line)" stroke-dasharray="2 4"/><line x1="' + X0 + '" y1="' + yR + '" x2="' + (X0 + 96 * CW) + '" y2="' + yR + '" stroke="var(--line)" stroke-dasharray="2 4"/>'
       + '<path d="' + p + '" fill="none" stroke="var(--work)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/></g></svg>';
   }
+  // After a rest the truck has not moved: the next "start work" gets the place and odometer of the "start rest".
+  function carry(n) {
+    var s = getS(n), d = S.days[keyOf(n)], changed = false; if (!d) return false;
+    for (var i = 0; i < D; i++) {
+      var before = i === 0 ? getS(n - 1)[D - 1] : s[i - 1]; if (s[i] !== 'w' || before === 'w') continue;
+      var e = (d.ev || {})[i]; if (e && !e.c && (e.p || e.o)) continue; // filled in by the driver
+      var dn = n, j = i, steps = 0, src = null; // walk back to where this rest began
+      while (steps++ < 4 * D) { var pj = j - 1, pd = dn; if (pj < 0) { pj = D - 1; pd = dn - 1; } if (getS(pd)[pj] === 'w') break; j = pj; dn = pd; }
+      if (steps >= 4 * D) continue;
+      src = ((S.days[keyOf(dn)] || {}).ev || {})[j]; if (!src || !(src.p || src.o)) continue;
+      if (e && e.c && e.p === src.p && e.o === src.o && e.k === src.k) continue;
+      d.ev = d.ev || {}; d.ev[i] = { c: 1 }; if (src.p) { d.ev[i].p = src.p; if (src.k) d.ev[i].k = src.k; } if (src.o) d.ev[i].o = src.o; changed = true;
+    }
+    if (changed) { d.t = Date.now(); dirty(n); save(); }
+    return changed;
+  }
   function changesHTML(n, s, d) {
+    carry(n); d = S.days[keyOf(n)] || d;
     var prev = getS(n - 1)[D - 1], rows = '', ev = d.ev || {};
-    for (var i = 0; i < D; i++) { var before = i === 0 ? prev : s[i - 1]; if (s[i] !== before) { var e = ev[i] || {}; rows += '<tr><td class="num">' + clock(i) + '</td><td>' + (s[i] === 'w' ? 'Start work' : 'Start rest') + '</td><td><button type="button" class="place' + (e.p ? '' : ' empty') + '" data-place="' + i + '" aria-label="Place at ' + clock(i) + '">' + (e.p ? esc(e.p) + (e.k ? '<small>' + esc(KINDS[e.k] || '') + '</small>' : '') : 'Choose place') + '</button></td><td><input data-ev="' + i + '" data-f="o" inputmode="numeric" pattern="[0-9]*" value="' + esc(e.o || '') + '" placeholder="Odometer" aria-label="Odometer at ' + clock(i) + '"></td></tr>'; } }
+    for (var i = 0; i < D; i++) { var before = i === 0 ? prev : s[i - 1]; if (s[i] !== before) { var e = ev[i] || {}; rows += '<tr><td class="num">' + clock(i) + '</td><td>' + (s[i] === 'w' ? 'Start work' : 'Start rest') + '</td><td><button type="button" class="place' + (e.p ? '' : ' empty') + '" data-place="' + i + '" aria-label="Place at ' + clock(i) + '">' + (e.p ? esc(e.p) + (e.k || e.c ? '<small>' + esc(KINDS[e.k] || '') + (e.c ? (KINDS[e.k] ? ' · ' : '') + 'same as rest' : '') + '</small>' : '') : 'Choose place') + '</button></td><td><input data-ev="' + i + '" data-f="o" inputmode="numeric" pattern="[0-9]*" value="' + esc(e.o || '') + '" placeholder="Odometer" aria-label="Odometer at ' + clock(i) + '"></td></tr>'; } }
     return '<div class="card"><h3>Work and rest changes</h3>' + (rows ? '<div class="tw"><table><thead><tr><th class="num">Time</th><th>Change</th><th>Place</th><th>Odometer</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<p class="hint">No changes on this day.</p>') + '</div>';
   }
 
@@ -361,7 +378,7 @@
     document.getElementById('plate').addEventListener('change', function (e) { day(n).plate = e.target.value.trim().toUpperCase(); day(n).t = Date.now(); dirty(n); save(); });
     document.getElementById('note').addEventListener('change', function (e) { day(n).note = e.target.value; day(n).t = Date.now(); dirty(n); save(); });
     main.querySelectorAll('button[data-place]').forEach(function (b) { b.addEventListener('click', function () { placeDialog(n, +b.dataset.place); }); });
-    main.querySelectorAll('input[data-ev]').forEach(function (inp) { inp.addEventListener('change', function () { var d = day(n); d.ev = d.ev || {}; d.ev[inp.dataset.ev] = d.ev[inp.dataset.ev] || {}; d.ev[inp.dataset.ev][inp.dataset.f] = inp.value.trim(); d.t = Date.now(); dirty(n); save(); }); });
+    main.querySelectorAll('input[data-ev]').forEach(function (inp) { inp.addEventListener('change', function () { var d = day(n); d.ev = d.ev || {}; d.ev[inp.dataset.ev] = d.ev[inp.dataset.ev] || {}; d.ev[inp.dataset.ev][inp.dataset.f] = inp.value.trim(); delete d.ev[inp.dataset.ev].c; d.t = Date.now(); dirty(n); save(); }); });
   }
   function on(id, fn) { var e = document.getElementById(id); if (e) e.addEventListener('click', fn); }
 
@@ -417,55 +434,65 @@
     if (kind === 'stop' && !/truck ?stop|roadhouse|service centre/i.test(name)) return name + ' truck stop';
     return name;
   }
+  function guessKind(name) { return /rest area|parking bay/i.test(name) ? 'rest' : /truck ?stop|roadhouse|service centre/i.test(name) ? 'stop' : /\b(bp|ampol|shell|caltex|mobil|united|liberty|puma|metro|7-eleven|servo|fuel)\b/i.test(name) ? 'fuel' : 'town'; }
   function placeDialog(n, slot, opts) {
     opts = opts || {}; var done = opts.after || renderDiary;
-    var cur = ((S.days[keyOf(n)] || {}).ev || {})[slot] || {}, kind = cur.k || 'town', saved = S.settings.places || [];
-    modal('<h2>' + esc(opts.title || 'Place at ' + clock(slot)) + '</h2>' + (opts.odo ? '<div class="form" style="grid-template-columns:1fr"><label>Odometer<input id="pk-odo" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="' + esc(cur.o || '') + '" placeholder="Odometer reading"></label></div>' : '') + '<p class="hint">' + (opts.odo ? 'Then choose the place: a rest area, truck stop, fuel station, suburb or town.' : 'Record the name of the place where you changed between work and rest: a rest area, truck stop, fuel station, suburb or town.') + '</p>'
-      + '<div class="kinds" id="pk-k">' + Object.keys(KINDS).map(function (k) { return '<button type="button" data-k="' + k + '">' + KINDS[k] + '</button>'; }).join('') + '</div>'
-      + (HOSTED || !navigator.geolocation ? '' : '<div class="pkgps"><button type="button" class="btn pri" id="pk-gps">Find places near me</button><span class="hint" id="pk-s" role="status"></span></div>')
-      + '<input type="search" id="pk-q" placeholder="Type the name" autocomplete="off" value="' + esc(cur.p || '') + '"><div class="plist" id="pk-l"></div>'
-      + '<div class="acts">' + (cur.p ? '<button class="btn danger" id="pk-x">Remove place</button>' : '') + (opts.odo ? '<button class="btn" id="pk-skip">Save without place</button>' : '<button class="btn" data-x>Cancel</button>') + '</div>', function (box, close) {
-      var q = box.querySelector('#pk-q'), list = box.querySelector('#pk-l'), near = nearCache && Date.now() - nearCache.t < 180000 ? nearCache.items : null, gps = box.querySelector('#pk-gps'), stat = box.querySelector('#pk-s');
-      if (gps) gps.addEventListener('click', function () {
-        gps.disabled = true; stat.textContent = 'Finding your location…';
-        locate().then(function (c) { stat.textContent = 'Looking up places…'; return nearby(c.latitude, c.longitude); }).then(function (r) {
-          near = r.items; nearCache = { t: Date.now(), items: near }; gps.disabled = false; q.value = '';
-          stat.textContent = near.length ? (r.partial ? 'Some results are missing. Check the name.' : 'Pick the place below.') : 'Nothing found near you. Type the name.'; draw();
+    var cur = ((S.days[keyOf(n)] || {}).ev || {})[slot] || {}, saved = S.settings.places || [], nb = nowBase();
+    var canGps = !HOSTED && !!navigator.geolocation, isNow = n === nb.n && Math.abs(slot - nb.i) <= 2, autoFind = canGps && (opts.auto || (isNow && !cur.p));
+    modal('<h2>' + esc(opts.title || 'Place at ' + clock(slot)) + '</h2>' + (opts.odo ? '<div class="form" style="grid-template-columns:1fr"><label>Odometer<input id="pk-odo" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="' + esc(cur.o || '') + '" placeholder="Odometer reading"></label></div>' : '')
+      + '<div class="form" style="grid-template-columns:1fr;margin-top:10px"><label>Place<input type="search" id="pk-q" placeholder="Suburb, rest area, truck stop or fuel station" autocomplete="off" value="' + esc(cur.p || '') + '"></label></div>'
+      + '<p class="hint" id="pk-s" role="status" style="min-height:1.4em;margin:6px 0">' + (autoFind ? '' : 'Type the name, or pick one below.') + '</p>'
+      + '<div class="plist" id="pk-l"></div>'
+      + '<div class="acts" style="flex-wrap:wrap"><button class="btn pri" id="pk-save" style="flex:1 1 100%">Save</button>' + (canGps ? '<button class="btn" id="pk-gps">Find places near me</button>' : '') + (cur.p ? '<button class="btn danger" id="pk-x">Remove place</button>' : '') + (opts.odo ? '<button class="btn" id="pk-skip">Save without place</button>' : '<button class="btn" data-x>Cancel</button>') + '</div>', function (box, close) {
+      var q = box.querySelector('#pk-q'), list = box.querySelector('#pk-l'), near = nearCache && Date.now() - nearCache.t < 180000 ? nearCache.items : null, gps = box.querySelector('#pk-gps'), stat = box.querySelector('#pk-s'), saveB = box.querySelector('#pk-save');
+      var sel = cur.p ? { p: cur.p, k: cur.k || guessKind(cur.p) } : null, typed = false; // sel = the place the Save button will record
+      function choose(x) { sel = { p: x.p, k: x.k }; q.value = x.p; typed = false; draw(); }
+      function useNear(first) { var town = near && near.filter(function (x) { return x.k === 'town'; })[0]; if (first && (town || (near && near[0])) && !typed && !cur.p) choose(town || near[0]); else draw(); }
+      function find() {
+        if (gps) gps.disabled = true; stat.textContent = 'Finding where you are…';
+        locate().then(function (c) { stat.textContent = 'Looking up the place name…'; return nearby(c.latitude, c.longitude); }).then(function (r) {
+          near = r.items; nearCache = { t: Date.now(), items: near }; if (gps) gps.disabled = false;
+          stat.textContent = near.length ? (r.partial ? 'Some results are missing. Check the name.' : 'This is where you are. Tap another place below if it fits better.') : 'Nothing found near you. Type the name.'; useNear(true);
         }).catch(function (e) {
-          gps.disabled = false;
-          stat.textContent = e && e.code === 1 ? 'Location is blocked for this app. Allow it in your phone settings, or type the name.' : e && e.net ? 'No internet, so names cannot be looked up. Type the name.' : 'Could not get your location. Try again outside, or type the name.';
+          if (gps) gps.disabled = false;
+          stat.textContent = e && e.code === 1 ? 'Location is blocked for this app. Allow it in your phone settings, or type the name.' : e && e.net ? 'No internet, so the name cannot be looked up. Type it, or pick one below.' : 'Could not get your location. Try again outside, or type the name.';
         });
-      });
+      }
+      if (gps) gps.addEventListener('click', function () { cur = Object.assign({}, cur, { p: '' }); typed = false; find(); });
       function pick(name, k, exact) {
         var label = exact ? name.trim() : placeLabel(name, k); if (!label) return;
         var d = day(n), oe = box.querySelector('#pk-odo'), rec = { p: label, k: k }; if (oe && oe.value.trim()) rec.o = oe.value.trim();
-        d.ev = d.ev || {}; d.ev[slot] = Object.assign({}, d.ev[slot], rec); d.t = Date.now(); dirty(n);
+        d.ev = d.ev || {}; d.ev[slot] = Object.assign({}, d.ev[slot], rec); delete d.ev[slot].c; d.t = Date.now(); dirty(n);
         S.settings.places = [{ p: label, k: k, t: Date.now() }].concat(saved.filter(function (x) { return x.p.toLowerCase() !== label.toLowerCase(); })).slice(0, 150);
         touchSettings(); save(); close(); done();
       }
       function draw() {
-        box.querySelectorAll('#pk-k button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.k === kind); });
-        q.placeholder = kind === 'rest' ? 'Rest area name' : kind === 'stop' ? 'Truck stop name' : kind === 'fuel' ? 'Fuel station name and town' : kind === 'town' ? 'Suburb or town' : 'Depot or customer name and suburb';
-        var t = q.value.trim().toLowerCase(), h = '', seen = {}, cnt = 0;
-        if (near) near.filter(function (x) { return !t || x.p.toLowerCase().indexOf(t) >= 0; }).forEach(function (x) { seen[x.p.toLowerCase()] = 1; h += '<button type="button" data-p="' + esc(x.p) + '" data-k="' + x.k + '" data-exact="1"><span>' + esc(x.p) + '</span><small>' + KINDS[x.k] + (x.k === 'town' ? ' · you are here' : ' · ' + (x.dist < 10 ? x.dist.toFixed(1) : Math.round(x.dist)) + ' km') + '</small></button>'; });
-        if (t) h += '<button type="button" class="use" data-p="' + esc(q.value) + '" data-k="' + kind + '"><span>Use “' + esc(placeLabel(q.value, kind)) + '”</span><small>' + KINDS[kind] + '</small></button>';
-        saved.filter(function (x) { return !seen[x.p.toLowerCase()] && (!t || x.p.toLowerCase().indexOf(t) >= 0) && (t || x.k === kind); }).slice(0, 8).forEach(function (x) { seen[x.p.toLowerCase()] = 1; h += '<button type="button" data-p="' + esc(x.p) + '" data-k="' + x.k + '" data-saved="1"><span>' + esc(x.p) + '</span><small>' + (KINDS[x.k] || '') + ' · used before</small></button>'; });
-        if (t || kind === 'town') {
+        var t = typed ? q.value.trim().toLowerCase() : '', h = '', seen = {}, cnt = 0, cs = sel ? sel.p.toLowerCase() : '';
+        var row = function (x, small, attr) { var on = cs && x.p.toLowerCase() === cs; return '<button type="button" data-p="' + esc(x.p) + '" data-k="' + x.k + '" ' + attr + (on ? ' aria-pressed="true"' : '') + '><span>' + esc(x.p) + '</span><small>' + small + (on ? ' · selected' : '') + '</small></button>'; };
+        if (near) near.filter(function (x) { return !t || x.p.toLowerCase().indexOf(t) >= 0; }).forEach(function (x) { seen[x.p.toLowerCase()] = 1; h += row(x, KINDS[x.k] + (x.k === 'town' ? ' · you are here' : ' · ' + (x.dist < 10 ? x.dist.toFixed(1) : Math.round(x.dist)) + ' km'), 'data-exact="1"'); });
+        saved.filter(function (x) { return !seen[x.p.toLowerCase()] && (!t || x.p.toLowerCase().indexOf(t) >= 0); }).slice(0, near && !t ? 4 : 8).forEach(function (x) { seen[x.p.toLowerCase()] = 1; h += row(x, (KINDS[x.k] || '') + ' · used before', 'data-saved="1"'); });
+        if (t || !near) {
           var order = [S.settings.base].concat(Object.keys(TOWNS).filter(function (z) { return z !== S.settings.base; }));
           order.forEach(function (z) { (TOWNS[z] || '').split(',').forEach(function (name) {
             if (cnt >= 12 || seen[name.toLowerCase()]) return; var l = name.toLowerCase();
-            if (t ? l.indexOf(t) === 0 || l.indexOf(' ' + t) >= 0 : z === S.settings.base) { cnt++; h += '<button type="button" data-p="' + esc(name) + '" data-k="' + kind + '"><span>' + esc(kind === 'town' ? name : placeLabel(name, kind)) + '</span><small>' + z + '</small></button>'; }
+            if (t ? l.indexOf(t) === 0 || l.indexOf(' ' + t) >= 0 : z === S.settings.base) { cnt++; h += row({ p: name, k: 'town' }, z, ''); }
           }); });
         }
         list.innerHTML = h || '<button type="button" disabled><span style="color:var(--muted)">Type a name. Places you use are remembered for next time.</span></button>';
+        var name = q.value.trim(); saveB.disabled = !name; saveB.textContent = name ? 'Save · ' + name : 'Save';
       }
-      box.querySelector('#pk-k').addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) { kind = b.dataset.k; draw(); q.focus(); } });
-      q.addEventListener('input', draw);
-      q.addEventListener('keydown', function (e) { if (e.key === 'Enter' && q.value.trim()) pick(q.value, kind); });
+      q.addEventListener('input', function () { typed = true; sel = null; draw(); });
+      q.addEventListener('keydown', function (e) { if (e.key === 'Enter' && q.value.trim()) saveB.click(); });
+      saveB.addEventListener('click', function () { var name = q.value.trim(); if (!name) return; if (sel && sel.p === name) pick(sel.p, sel.k, true); else pick(name, guessKind(name), true); });
       list.addEventListener('click', function (e) { var b = e.target.closest('button[data-p]'); if (b) pick(b.dataset.p, b.dataset.k, !!b.dataset.exact || !!b.dataset.saved); });
-      var rm = box.querySelector('#pk-x'); if (rm) rm.addEventListener('click', function () { var d = day(n); if (d.ev && d.ev[slot]) { delete d.ev[slot].p; delete d.ev[slot].k; d.t = Date.now(); dirty(n); save(); } close(); done(); });
-      var sk = box.querySelector('#pk-skip'); if (sk) sk.addEventListener('click', function () { var oe = box.querySelector('#pk-odo'); if (oe && oe.value.trim()) { var d = day(n); d.ev = d.ev || {}; d.ev[slot] = Object.assign({}, d.ev[slot], { o: oe.value.trim() }); d.t = Date.now(); dirty(n); save(); } close(); done(); });
-      draw(); setTimeout(function () { var oe = box.querySelector('#pk-odo'); if (oe) oe.focus(); else { q.focus(); q.select(); } if (opts.auto && gps && navigator.onLine) gps.click(); }, 0);
+      var rm = box.querySelector('#pk-x'); if (rm) rm.addEventListener('click', function () { var d = day(n); if (d.ev && d.ev[slot]) { delete d.ev[slot].p; delete d.ev[slot].k; delete d.ev[slot].c; d.t = Date.now(); dirty(n); save(); } close(); done(); });
+      var sk = box.querySelector('#pk-skip'); if (sk) sk.addEventListener('click', function () { var oe = box.querySelector('#pk-odo'); if (oe && oe.value.trim()) { var d = day(n); d.ev = d.ev || {}; d.ev[slot] = Object.assign({}, d.ev[slot], { o: oe.value.trim() }); delete d.ev[slot].c; d.t = Date.now(); dirty(n); save(); } close(); done(); });
+      draw();
+      setTimeout(function () {
+        var oe = box.querySelector('#pk-odo'); if (oe) oe.focus();
+        if (autoFind && !cur.p) { if (near) { stat.textContent = 'This is where you are. Tap another place below if it fits better.'; useNear(true); } else if (navigator.onLine) find(); else stat.textContent = 'No internet, so the name cannot be looked up. Type it, or pick one below.'; }
+        else if (!oe && !cur.p) q.focus();
+      }, 0);
     });
   }
 
@@ -656,6 +683,8 @@
       }
       coachGate(x.n, x.i, x.i + 1, function (st2) {
         if (st2 !== x.i) return; snapshot(); S.live = { n: x.n, i: x.i }; setRange(x.n, x.i, x.i + 1, 'w'); touchSettings(); save();
+        carry(x.n); var cp = ((S.days[keyOf(x.n)] || {}).ev || {})[x.i];
+        if (cp && cp.c && cp.p && cp.o) { renderNow(); toast('Same place and odometer as your rest: ' + cp.p + ' · ' + cp.o + '. Change it on the Diary page if it is different.', 7000); return; }
         placeDialog(x.n, x.i, { odo: true, auto: true, title: 'Work started at ' + clock(x.i), after: renderNow });
       });
     });

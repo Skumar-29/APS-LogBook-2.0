@@ -319,7 +319,8 @@
       + '<label>Leave on<input id="tp-dd" type="date" value="' + WD.keyOf(depN) + '" min="' + WD.keyOf(c0.n) + '" max="' + WD.keyOf(c0.n + DAYS) + '"></label><label>Leave at<input id="tp-dt" type="time" step="900" value="' + esc(t.dep) + '"></label>'
       + '<label>Arrive by (optional)<input id="tp-ad" type="date" value="' + (t.arr ? WD.keyOf(arrN) : '') + '"></label><label>Arrive by time<input id="tp-at" type="time" step="900" value="' + esc(t.arr || '') + '"></label></div>'
       + '<p class="hint">Work hours means driving plus loading, fuel and checks. Leave the arrive-by boxes empty to see the earliest legal arrival.</p><div id="tp-out" class="stack" style="gap:12px"></div>';
-    var out = bd.querySelector('#tp-out'), last = null, g = function (id) { return bd.querySelector(id); };
+    var out = bd.querySelector('#tp-out'), last = null, keepDep = '', g = function (id) { return bd.querySelector(id); };
+    function setLeave(abs, c) { var r = abs - c.off, dn = c.n + Math.floor(r / D), sl = ((r % D) + D) % D; g('#tp-dd').value = WD.keyOf(dn); g('#tp-dt').value = hhmm(sl); run(); }
     function run() {
       var h = parseFloat(String(g('#tp-h').value).replace(',', '.')), dd = g('#tp-dd').value, dt = slotOf(g('#tp-dt').value), ad = g('#tp-ad').value, at = slotOf(g('#tp-at').value);
       if (!(h > 0) || h > 100) { out.innerHTML = '<p class="note warn">Enter the work hours for this trip, from 0.25 to 100.</p>'; return; }
@@ -334,7 +335,15 @@
         if (pl.fail) { out.innerHTML = '<p class="note warn">This trip does not fit in the next 9 days from that leave time.</p>'; last = null; return; }
         last = pl; var b = pl.best, cc = pl.c, ok = arr == null || b.end <= arr;
         var head = arr == null ? 'Earliest legal arrival: ' + tm(cc, b.end) : ok ? 'On time. Arrive ' + tm(cc, b.end) + ', ' + (pl.slack ? hm(pl.slack) + ' before' : 'right on') + ' your arrive-by time.' : 'Not on time. Earliest legal arrival is ' + tm(cc, b.end) + ', ' + hm(pl.late) + ' late.';
-        var h2 = '<div class="tripres ' + (ok ? 'ok' : 'bad') + '"><b>' + esc(head) + '</b>' + (pl.clamped ? '<small>The leave time has passed, so this is planned from now.</small>' : '') + '</div>';
+        // the leave time itself: does it break a rule, or cut a 7-hour or 24-hour rest short?
+        var warn = null, depKey = dd + ' ' + g('#tp-dt').value;
+        if (!pl.clamped && keepDep !== depKey) {
+          if (b.first > pl.dep) warn = { title: 'You cannot start work at ' + tm(cc, pl.dep), text: 'Your diary does not allow work until ' + tm(cc, b.first) + (b.waitWhy ? ' (' + b.waitWhy + ')' : '') + '. The plan below already waits until then.', until: b.first, bad: true };
+          else if (window.WDCoach) { var adv = window.WDCoach.check(WD.dayNum(dd), dt); if (adv && adv.until != null && adv.kind !== 'tip') warn = { title: adv.title, text: adv.text + (adv.gain ? ' ' + adv.gain : ''), until: adv.until, bad: adv.kind === 'warn' }; }
+        }
+        if (warn) { try { var alt = tripPlan(H, warn.until, arr); if (alt.best && alt.best.end < b.end) warn.text += ' Leaving at ' + tm(cc, warn.until) + ', you arrive ' + tm(cc, alt.best.end) + ', which is ' + hm(b.end - alt.best.end) + ' earlier.'; } catch (e) {} }
+        var h2 = (warn ? '<div class="tripwarn' + (warn.bad ? ' bad' : '') + '" role="alert"><b>' + esc(warn.title) + '</b><span>' + esc(warn.text) + '</span><div class="tripbtns"><button class="btn pri" id="tp-fix">Leave at ' + esc(tm(cc, warn.until)) + '</button><button class="btn" id="tp-keep">Keep ' + esc(tm(cc, pl.dep, pl.dep)) + '</button></div></div>' : '')
+          + '<div class="tripres ' + (ok ? 'ok' : 'bad') + '"><b>' + esc(head) + '</b>' + (pl.clamped ? '<small>The leave time has passed, so this is planned from now.</small>' : '') + '</div>';
         h2 += '<div class="tripstats"><div><small>Work</small><b>' + hm(pl.H) + '</b></div><div><small>Leave to arrive</small><b>' + hm(b.end - pl.dep) + '</b></div><div><small>Long/night used</small><b>' + hm(b.ln) + '</b></div>' + (b.lnLeft != null ? '<div><small>Long/night left after</small><b>' + hm(b.lnLeft) + '</b></div>' : '') + '</div>';
         h2 += '<div><h3>The plan' + (pl.even ? ' · even shifts' : '') + '</h3><ol class="tripsteps">' + b.legs.map(function (l) {
           var span = '<span class="when">' + esc(tm(cc, l.s)) + ' to ' + esc(tm(cc, l.e, l.s)) + '</span>';
@@ -345,6 +354,7 @@
         if (pl.tips.length) h2 += '<div><h3>Smart tips</h3><ul class="triptips">' + pl.tips.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div>';
         h2 += '<div class="tools"><button class="btn pri" id="tp-add">Add to my diary as a plan</button>' + (navigator.share ? '<button class="btn" id="tp-share">Send plan</button>' : '') + '<button class="btn" id="tp-copy">Copy plan</button></div><p class="note warn">Legal limits only. It assumes your diary is up to date and you do no other work before leaving. Delays use up hours. Never drive tired.</p>';
         out.innerHTML = h2;
+        if (warn) { out.querySelector('#tp-fix').addEventListener('click', function () { setLeave(warn.until, cc); }); out.querySelector('#tp-keep').addEventListener('click', function () { keepDep = depKey; run(); }); }
         out.querySelector('#tp-add').addEventListener('click', function () { var tpl = Array.prototype.slice.call(b.W.subarray(pl.dep, b.end)); WD.addPlan(cc.n, pl.dep - cc.off, tpl); m.remove(); WD.toast(t.name + ' added to your diary as a plan. Undo is on the Diary screen.', 7000); render(); });
         var txt = tripLines(pl, t.name) + (pl.tips.length ? '\n\n' + pl.tips.join('\n') : '');
         var sh = out.querySelector('#tp-share'); if (sh) sh.addEventListener('click', function () { navigator.share({ title: t.name, text: txt }).catch(function () {}); });

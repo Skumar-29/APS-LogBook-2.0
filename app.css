@@ -339,3 +339,12 @@ html,body{max-width:100%;overflow-x:hidden;overscroll-behavior:none}
 @media (max-width:559px){.daybar .day{font-size:clamp(19px,6vw,24px);gap:6px;flex-basis:100%}.daybar .day .yr{display:none}.daybar .day .chip{font-size:12.5px;padding:1px 8px}.pgl{display:none}.pgs{display:inline}}
 @media (max-height:640px) and (max-width:699px){.canwork{min-height:30px;height:30px}.canwork small{display:inline}.daybar .day{font-size:20px}}
 .canwork{justify-content:flex-start}
+
+/* ---------- trip planner warning, place picker without type buttons, invoice header ---------- */
+.tripwarn{border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;background:var(--warn-bg);border-left:5px solid var(--warn)}
+.tripwarn.bad{background:var(--bad-bg);border-color:var(--bad)}.tripwarn b{font-size:17px;line-height:1.25}.tripwarn span{font-size:14.5px;line-height:1.4}
+.tripwarn .tripbtns{grid-template-columns:1fr 1fr}
+.plist button[aria-pressed=true]{background:var(--ok-bg);box-shadow:inset 4px 0 0 var(--ok)}
+#pk-save{min-height:48px;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.form.three>:nth-child(4){grid-column:1/-1}
+@media (min-width:640px){.form.three{grid-template-columns:repeat(4,minmax(0,1fr))}.form.three>:nth-child(4){grid-column:auto}}
