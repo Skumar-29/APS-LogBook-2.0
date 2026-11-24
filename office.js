@@ -101,11 +101,13 @@
     return '<label' + (o.cls ? ' class="' + o.cls + '"' : '') + '>' + esc(label) + h + (o.after || '') + '</label>';
   }
   function chk(id, label, value, dis) { return '<label class="chk"><input type="checkbox" id="' + id + '"' + (value ? ' checked' : '') + (dis ? ' disabled' : '') + '> ' + esc(label) + '</label>'; }
-  function tabs(view) { return '<div class="subnav" role="tablist">' + TABS.map(function (t) { return '<a href="#' + t[0] + '"' + (t[0] === view ? ' aria-current="page"' : '') + '>' + t[1] + '</a>'; }).join('') + '</div>'; }
+  function partOn(v) { var p = (WD.S.settings.parts || {}); return !((v === 'invoices' && p.inv === false) || (v === 'forms' && p.forms === false)); }
+  function tabs(view) { return '<div class="subnav" role="tablist">' + TABS.filter(function (t) { return partOn(t[0]); }).map(function (t) { return '<a href="#' + t[0] + '"' + (t[0] === view ? ' aria-current="page"' : '') + '>' + t[1] + '</a>'; }).join('') + '</div>'; }
   function on(id, ev, fn) { var e = document.getElementById(id); if (e) e.addEventListener(ev, fn); }
   function click(id, fn) { on(id, 'click', fn); }
   function each(sel, fn) { main.querySelectorAll(sel).forEach(fn); }
-  function draw(view) { // re-render and keep the place: focus, scroll and which sections are open
+  function draw(view) {
+    if (!partOn(view)) { var nx = TABS.filter(function (t) { return partOn(t[0]); })[0]; location.hash = '#' + nx[0]; return; } // re-render and keep the place: focus, scroll and which sections are open
     var act = document.activeElement && document.activeElement.id, top = main.scrollTop;
     main.querySelectorAll('details[id]').forEach(function (d) { ui.open[d.id] = d.open; });
     VIEWS[view]();
@@ -553,7 +555,7 @@
   function placeKey(p) { return String(p || '').toLowerCase().trim().split(',')[0].trim(); }
   function tripAsk(endKey, manual) {
     return load().then(function () {
-      attach(O); var I = APS.invoices, cfg = autoCfg(O); if (!manual && !cfg.ask) return;
+      attach(O); var I = APS.invoices, cfg = autoCfg(O); if (!manual && (!cfg.ask || !partOn('invoices'))) return;
       var all = I.tripChoices(withDays(O), '0000-01-01', '9999-12-31');
       var used = {}, lastEnd = ''; O.invoices.forEach(function (x) { x.loads.forEach(function (r) { if (r.sourceId) { var e = r.sourceId.split('|')[1]; used[e] = 1; if (ordKey(e) > lastEnd) lastEnd = ordKey(e); } }); });
       if (!endKey) { var ends = all.filter(function (c) { return changeKind(c.date, c.slot) === 'end' && c.location && c.odometer && !used[c.key]; }); if (!ends.length) { toast('No finished trip was found. In the Diary, add the place and odometer where you stopped work.'); return; } endKey = ends[ends.length - 1].key; }
@@ -604,9 +606,13 @@
     });
   }
   window.WDOffice = {
-    tripAsk: tripAsk,
+    tripAsk: tripAsk, sigPad: sigPad, readImage: readImage,
+    // first set-up: company name, logo and signature become the form defaults (nothing is required)
+    saveProfile: function (x) { return load().then(function () { return mutate(function (w) { var F = APS.forms, d = F.getFormDefaults(w); if (x.name) d.driver = x.name; if (x.licence) d.licence = x.licence; if (x.company != null) { d.company = x.company; d.showCompany = !!x.company; } if (x.logo) { d.logo = x.logo; d.showLogo = true; } if (x.signature) d.signature = x.signature; w.formDefaults = w.formDefaults || {}; w.formDefaults[w.profile.id] = d; }); }); },
+    wipe: function () { return new Promise(function (res) { try { var r = indexedDB.deleteDatabase('workdiary-office'); r.onsuccess = r.onerror = r.onblocked = function () { res(); }; } catch (e) { res(); } setTimeout(res, 1500); }); },
     views: Object.keys(VIEWS),
     render: function (view) {
+      if (!partOn(view)) { var nx = TABS.filter(function (t) { return partOn(t[0]); })[0]; if (nx[0] !== view) { location.hash = '#' + nx[0]; return; } }
       current = view;
       if (!O) main.innerHTML = '<div class="wrap">' + tabs(view) + '<p class="hint">Loading…</p></div>';
       load().then(function () { if (current === view) { attach(O); VIEWS[view](); } }, function (e) { main.innerHTML = '<div class="wrap">' + tabs(view) + '<p class="note warn">' + esc(e.message) + '</p></div>'; });

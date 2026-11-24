@@ -348,3 +348,20 @@ html,body{max-width:100%;overflow-x:hidden;overscroll-behavior:none}
 #pk-save{min-height:48px;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .form.three>:nth-child(4){grid-column:1/-1}
 @media (min-width:640px){.form.three{grid-template-columns:repeat(4,minmax(0,1fr))}.form.three>:nth-child(4){grid-column:auto}}
+
+/* ---------- sign-in and set-up pages ---------- */
+.welcome{position:fixed;inset:0;z-index:900;background:var(--bg);overflow:auto;-webkit-overflow-scrolling:touch;display:flex;justify-content:center;padding:max(24px,env(safe-area-inset-top)) 20px max(24px,env(safe-area-inset-bottom))}
+.winner{width:100%;max-width:440px;display:flex;flex-direction:column;gap:14px;margin:auto 0}
+.welcome.setup .winner{margin:0}
+.wbrand{text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px;margin:10px 0 12px}
+.wbrand h1{font-family:var(--f-display);font-size:38px;letter-spacing:.04em;text-transform:uppercase;margin:0;line-height:1}.wbrand p{color:var(--muted);margin:0}
+.wbtns{display:flex;flex-direction:column;gap:10px;margin:6px 0}.btn.big{min-height:54px;font-size:18px;width:100%}
+.wload{text-align:center;color:var(--muted);font-size:17px}
+.wimg{max-width:220px;max-height:90px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px;display:block;margin:4px 0}.wimg.sig{max-width:100%}
+.welcome .lab{display:block;font-size:14px;color:var(--muted);margin-bottom:4px}.welcome h2{font-family:var(--f-display);font-size:28px;text-transform:uppercase;letter-spacing:.03em;margin:6px 0 0}
+
+/* ---------- More page sections, to-do lists ---------- */
+.sect{font-family:var(--f-display);font-size:15px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:10px 2px -4px;font-weight:700}
+.todo{margin:6px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px;line-height:1.4}
+.attn .todo{font-size:15px}
+[hidden]{display:none!important}

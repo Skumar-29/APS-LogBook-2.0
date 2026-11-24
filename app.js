@@ -4,7 +4,7 @@
   var ZONES = { ACT: 'Australia/Sydney', NSW: 'Australia/Sydney', VIC: 'Australia/Melbourne', QLD: 'Australia/Brisbane', SA: 'Australia/Adelaide', TAS: 'Australia/Hobart', NT: 'Australia/Darwin', WA: 'Australia/Perth' };
   var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var BLANK = new Array(D + 1).join('r');
-  var KEY = 'workdiary.v1', VERSION = '2.6.0';
+  var KEY = 'workdiary.v1', VERSION = '2.8.1';
   var HOSTED = !!(window.claude && window.claude.use); // true inside Claude, false on your own site
 
   /* ---------- state ---------- */
@@ -97,8 +97,17 @@
   var AN = null;
   function timeline(d0, d1) { var W = new Uint8Array((d1 - d0 + 1) * D); for (var n = d0; n <= d1; n++) { var s = getS(n), o = (n - d0) * D; if (s !== BLANK) for (var i = 0; i < D; i++) if (s.charCodeAt(i) === 119) W[o + i] = 1; } return W; }
   function cfgOf(opt) { return opt === 'custom' ? S.settings.custom : null; }
+  // A day boundary can fall in the middle of a shift. The shift in progress stays with the old option:
+  // the switch moves to the first major rest (7 hours or more) after midnight.
+  function segEdge(W, slot) {
+    if (slot <= 0 || slot >= W.length || !W[slot - 1]) return slot;
+    var i = slot, lim = Math.min(W.length, slot + D), run = 0;
+    for (; i < lim; i++) { if (W[i]) run = 0; else if (++run >= 28) return i - run + 1; }
+    return slot;
+  }
   function segmentW(W, d0, segStart, segEnd, total) { // view of the records for one hours option
-    var X = W.slice(), a = (segStart - d0) * D, b = (segEnd - d0 + 1) * D, i;
+    var X = W.slice(), a = segStart > d0 ? segEdge(W, (segStart - d0) * D) : 0, b = segEdge(W, (segEnd - d0 + 1) * D), i;
+    if (segStart <= d0) a = (segStart - d0) * D;
     for (i = b; i < X.length; i++) X[i] = 0;
     var reset = false;
     if (segStart > d0) { // changing option: full compliance with the new option, or a 48-hour reset rest break
@@ -118,6 +127,7 @@
       var seg = segmentW(W, d0, d0 + s, d0 + e), res = FM.analyse(seg.W, opts[s], cfgOf(opts[s]));
       for (var i = seg.a; i < seg.b; i++) { flags[i] = res.flags[i]; ln[i] = res.ln[i]; }
       res.findings.forEach(function (fd) { if (fd.at >= seg.a && fd.at < seg.b) { fd.opt = opts[s]; findings.push(fd); } });
+      if (s > 0 && opts[s - 1] !== 'custom' && !seg.reset && res.findings.some(function (fd) { return !fd.warn && fd.at < seg.a && fd.at >= seg.a - 14 * D; })) findings.push({ rule: 'reset', label: 'Changing hours option', kind: 'rest', warn: true, at: seg.a, from: seg.a, to: seg.a, slots: [], msg: 'You changed to ' + FM.OPTIONS[opts[s]].name + ' without a rest of 48 hours in a row, and your work before the change does not fit ' + FM.OPTIONS[opts[s]].name + ' rules. Take a 48-hour rest before you change hours option.' });
       if (s > 0 && opts[s - 1] === 'custom' && !seg.reset) findings.push({ rule: 'reset', label: 'Changing hours option', kind: 'rest', warn: true, at: seg.a, from: seg.a, to: seg.a, slots: [], msg: 'To change from AFM, ACH or exemption hours you must first take a reset rest break of 48 continuous hours.' });
       s = e + 1;
     }
@@ -147,7 +157,14 @@
 
   /* ---------- rendering ---------- */
   var main = document.getElementById('main');
-  window.WD = { get S() { return S; }, esc: esc, main: main, toast: function (m, t) { toast(m, t); }, nowBase: nowBase, keyOf: keyOf, dayNum: dayNum, clock: clock, ZONES: ZONES, optOf: optOf, render: function () { if (!document.querySelector('.modal')) render(); }, fmtDay: fmtDay, absT: function (abs, ref) { return absT(abs, ref); }, addPlan: function (n, start, tpl) { snapshot(); for (var i = 0; i < tpl.length; i++) if (tpl[i]) setAbsRange(n, start + i, start + i + 1, 'w'); save(); }, touch: function () { touchSettings(); save(); },
+  function loadBackup(p) { // put a backup back: its days win, days made after it are kept
+    if (!p || !p.days) throw Error('That is not a work diary backup.'); snapshot();
+    for (var k in p.days) if (/^\d{4}-\d\d-\d\d$/.test(k) && p.days[k] && typeof p.days[k].s === 'string' && p.days[k].s.length === D) { S.days[k] = p.days[k]; S.days[k].t = Date.now(); dirty(dayNum(k)); }
+    if (p.settings) { S.settings = merge({ settings: S.settings }, { settings: p.settings }).settings; touchSettings(); } save(); render();
+    return p.office && window.WDOffice ? window.WDOffice.importData(p.office, p.files || {}) : Promise.resolve();
+  }
+  window.WD = {
+    loadBackup: loadBackup, get S() { return S; }, esc: esc, main: main, toast: function (m, t) { toast(m, t); }, nowBase: nowBase, keyOf: keyOf, dayNum: dayNum, clock: clock, ZONES: ZONES, optOf: optOf, render: function () { if (!document.querySelector('.modal')) render(); }, fmtDay: fmtDay, absT: function (abs, ref) { return absT(abs, ref); }, addPlan: function (n, start, tpl) { snapshot(); for (var i = 0; i < tpl.length; i++) if (tpl[i]) setAbsRange(n, start + i, start + i + 1, 'w'); save(); }, touch: function () { touchSettings(); save(); },
     // For the planner: records for the hours option in force today, history plus any planned days ahead
     planCtx: function () {
       var nw = nowBase(), A = analyseAll(nw.n), opt = optOf(nw.n), s = nw.n; while (s - 1 >= A.d0 && optOf(s - 1) === opt) s--;
@@ -378,7 +395,7 @@
     document.getElementById('plate').addEventListener('change', function (e) { day(n).plate = e.target.value.trim().toUpperCase(); day(n).t = Date.now(); dirty(n); save(); });
     document.getElementById('note').addEventListener('change', function (e) { day(n).note = e.target.value; day(n).t = Date.now(); dirty(n); save(); });
     main.querySelectorAll('button[data-place]').forEach(function (b) { b.addEventListener('click', function () { placeDialog(n, +b.dataset.place); }); });
-    main.querySelectorAll('input[data-ev]').forEach(function (inp) { inp.addEventListener('change', function () { var d = day(n); d.ev = d.ev || {}; d.ev[inp.dataset.ev] = d.ev[inp.dataset.ev] || {}; d.ev[inp.dataset.ev][inp.dataset.f] = inp.value.trim(); delete d.ev[inp.dataset.ev].c; d.t = Date.now(); dirty(n); save(); }); });
+    main.querySelectorAll('input[data-ev]').forEach(function (inp) { inp.addEventListener('change', function () { var d = day(n); d.ev = d.ev || {}; d.ev[inp.dataset.ev] = d.ev[inp.dataset.ev] || {}; d.ev[inp.dataset.ev][inp.dataset.f] = inp.value.trim(); delete d.ev[inp.dataset.ev].c; d.t = Date.now(); dirty(n); save(); var bad = dayNotes(n).filter(function (x) { return /odometer (reading is lower|goes up)/i.test(x); })[0]; if (bad) toast(bad, 7000); }); });
   }
   function on(id, fn) { var e = document.getElementById(id); if (e) e.addEventListener('click', fn); }
 
@@ -558,7 +575,13 @@
   document.addEventListener('gesturestart', function (e) { if (!(e.target.closest && e.target.closest('.paper-scroll, [data-zoom]'))) e.preventDefault(); }, { passive: false });
   function diaryDay(n) {
     var k = keyOf(n), d = S.days[k] || {}, s = getS(n), opt = optOf(n), ev = d.ev || {}, changes = {}, plate = d.plate != null && d.plate !== '' ? d.plate : S.settings.plate || '';
-    Object.keys(ev).forEach(function (sl) { if (ev[sl] && (ev[sl].p || ev[sl].o)) changes[sl] = { slot: +sl, location: ev[sl].p || '', odometer: ev[sl].o || '', restType: 'stationary', note: '', vehicle: plate }; });
+    var lastP = null; // the last place and odometer written on the page
+    Object.keys(ev).map(Number).sort(function (x, y) { return x - y; }).forEach(function (sl) {
+      var e = ev[sl]; if (!e || !(e.p || e.o)) return;
+      var before = sl === 0 ? getS(n - 1)[D - 1] : s[sl - 1]; if (s[sl] === before) return; // no change of work or rest at this time any more
+      if (lastP && lastP.p === (e.p || '') && lastP.o === (e.o || '') && sl - lastP.slot < 4) return; // same place and reading less than an hour ago
+      changes[sl] = { slot: sl, location: e.p || '', odometer: e.o || '', restType: 'stationary', note: '', vehicle: plate }; lastP = { slot: sl, p: e.p || '', o: e.o || '' };
+    });
     var scheme = opt === 'bfm' || opt === 'bfm2' ? 'BFM' : opt === 'custom' ? 'AFM' : 'Standard';
     return { date: k, slots: s.split('').map(function (c) { return c === 'w' ? 'work' : 'rest'; }), changes: changes, vehicle: plate, comments: d.note || '',
       dailyCheckTime: d.chk || '', fitForDuty: !!d.fit,
@@ -605,12 +628,26 @@
     for (var n = Math.max(f, today - 28); n < today; n++) { var d = S.days[keyOf(n)]; if (!hasWork(n) && !(d && d.c)) out.push(n); }
     return out;
   }
-  function dayNotes(n) { // things to fix in the record itself: missing places, odometer going backwards
-    var s = getS(n), d = S.days[keyOf(n)] || {}, ev = d.ev || {}, prev = getS(n - 1)[D - 1], miss = 0, out = [], last = null, back = false;
+  function odoNum(v) { var o = parseFloat(String(v == null ? '' : v).replace(/[,\s]/g, '')); return isFinite(o) ? o : null; }
+  function lastOdoBefore(n) { for (var d = n - 1; d >= n - 7; d--) { var ev = (S.days[keyOf(d)] || {}).ev || {}, ks = Object.keys(ev).map(Number).sort(function (x, y) { return y - x; }); for (var q = 0; q < ks.length; q++) { var o = odoNum(ev[ks[q]].o); if (o !== null) return o; } } return null; }
+  function dayNotes(n) { // things to fix in the record itself: missing places and odometers, readings that cannot be right
+    carry(n);
+    var s = getS(n), d = S.days[keyOf(n)] || {}, ev = d.ev || {}, prev = getS(n - 1)[D - 1], miss = 0, missO = 0, out = [], last = lastOdoBefore(n), lastSlot = -1, back = false, jump = null;
     var nwN = nowBase(), lim = n === nwN.n ? nwN.i : n > nwN.n ? -1 : D; // changes that have not happened yet are not missing anything
-    for (var i = 0; i < D; i++) { var before = i === 0 ? prev : s[i - 1]; if (i > lim) break; if (s[i] !== before) { var e = ev[i] || {}; if (!e.p) miss++; var o = parseFloat(String(e.o || '').replace(/[,\s]/g, '')); if (isFinite(o)) { if (last !== null && o < last) back = true; last = o; } } }
-    if (miss && hasWork(n)) out.push(miss + (miss === 1 ? ' change has' : ' changes have') + ' no place. The work diary needs the place at each work and rest change.');
+    for (var i = 0; i < D; i++) {
+      var before = i === 0 ? prev : s[i - 1]; if (i > lim) break; if (s[i] === before) continue;
+      var e = ev[i] || {}, o = odoNum(e.o); if (!e.p) miss++; if (o === null) { missO++; continue; }
+      if (last !== null && o < last) back = true;
+      if (last !== null && lastSlot >= 0 && o > last) { var w = 0; for (var q = lastSlot; q < i; q++) if (s[q] === 'w') w++; var km = o - last; if (km > w * 27.5 + 10 && !jump) jump = { km: Math.round(km), w: w, at: i }; } // more than 110 km/h of work time
+      last = o; lastSlot = i;
+    }
+    if (!hasWork(n)) return out;
+    var rm = S.settings.remind || 'all'; if (rm === 'off') miss = 0; if (rm !== 'all') missO = 0;
+    if (miss) out.push(miss + (miss === 1 ? ' change has' : ' changes have') + ' no place. The work diary needs the place at each work and rest change.');
+    if (missO) out.push(missO + (missO === 1 ? ' change has' : ' changes have') + ' no odometer reading.');
     if (back) out.push('An odometer reading is lower than the one before it. Check the numbers.');
+    if (jump) out.push('The odometer goes up ' + jump.km.toLocaleString('en-AU') + ' km by ' + clock(jump.at) + ', with only ' + hm(jump.w) + ' of work before it. Check the numbers.');
+    if (n < nwN.n && !d.fit && rm !== 'off') out.push('Fit for duty is not ticked.');
     return out;
   }
   function zoneOffset(ms, zone) { var o = {}; new Intl.DateTimeFormat('en-AU', { timeZone: zone, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).formatToParts(new Date(ms)).forEach(function (x) { o[x.type] = +x.value; }); return Math.round((Date.UTC(o.year, o.month - 1, o.day, o.hour % 24, o.minute) - ms) / 60000); }
@@ -660,9 +697,10 @@
     if (by.ln7) due.push(['Long/night hours left', hm(Math.max(0, by.ln7.max - by.ln7.used)), 'of 36h']);
     var openF = A.findings.filter(function (f) { return !f.warn && f.at >= off - 14 * D && f.at < T; });
     // things that need your attention
-    var att = '', empties = emptyDays(nw.n), notes = dayNotes(nw.n).concat(hasWork(nw.n - 1) ? dayNotes(nw.n - 1).map(function (x) { return 'Yesterday: ' + x; }) : []);
+    var att = '', empties = emptyDays(nw.n), notes = [], noteDays = [];
+    [0, 1, 2].forEach(function (b) { var dn = nw.n - b, L = (S.days[keyOf(dn)] || {}).skip ? [] : dayNotes(dn); if (L.length) { noteDays.push(dn); L.forEach(function (x) { notes.push((b === 0 ? 'Today' : b === 1 ? 'Yesterday' : fmtDay(dn)) + ': ' + x); }); } });
     if (empties.length) att += '<div class="attn"><b>' + empties.length + (empties.length === 1 ? ' day has' : ' days have') + ' no entry</b><span>' + empties.slice(-6).map(function (n) { return fmtDay(n); }).join(', ') + (empties.length > 6 ? ' and more' : '') + '. They are counted as rest. Were you resting?</span><div class="tools"><button class="btn sm pri" id="at-rest">Yes, all rest days</button><button class="btn sm" id="at-open">Open ' + fmtDay(empties[empties.length - 1]) + '</button></div></div>';
-    if (notes.length) att += '<div class="attn"><b>Finish your record</b><span>' + notes.map(esc).join(' ') + '</span><div class="tools"><button class="btn sm" id="at-sheet">Open the sheet</button></div></div>';
+    if (notes.length) att += '<div class="attn"><b>Finish your record</b><ul class="todo">' + notes.slice(0, 6).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + (notes.length > 6 ? '<li>and ' + (notes.length - 6) + ' more</li>' : '') + '</ul><div class="tools">' + noteDays.map(function (dn) { return '<button class="btn sm" data-fix="' + dn + '">Fix ' + (dn === nw.n ? 'today' : dn === nw.n - 1 ? 'yesterday' : fmtDay(dn)) + '</button>'; }).join('') + '<button class="btn sm" id="at-skip">Skip</button></div></div>';
     var recDays = Object.keys(S.days).filter(function (k) { return S.days[k].s && S.days[k].s.indexOf('w') >= 0; }).length, since = S.settings.lastBackup || S.settings.firstUse || Date.now(), bdays = Math.floor((Date.now() - since) / 864e5);
     if (!HOSTED && !driveOn() && recDays > 0 && bdays >= 7) att += '<div class="attn"><b>No backup for ' + bdays + ' days</b><span>Your records are only on this phone.</span><div class="tools"><button class="btn sm" id="at-backup">Go to backup</button></div></div>';
     var tipLine = (function () { if (st.m.working || S.settings.tips === false || !window.WDCoach) return ''; var tip = window.WDCoach.check(nw.n, nw.i); return tip && tip.kind !== 'warn' ? '<p class="note" style="border-color:var(--work);color:var(--ink)">' + esc(tip.kind === 'tip' ? tip.text : tip.text + ' ' + tip.gain) + '</p>' : ''; })();
@@ -692,7 +730,8 @@
     on('goplan', function () { location.hash = window.WDPlan ? '#plan' : '#fortnight'; });
     on('at-rest', function () { empties.forEach(function (n) { var d = day(n); d.c = 1; d.t = Date.now(); dirty(n); }); save(); renderNow(); toast('Marked as rest days.'); });
     on('at-open', function () { focus = empties[empties.length - 1]; location.hash = '#diary'; });
-    on('at-sheet', function () { focus = dayNotes(nw.n).length ? nw.n : nw.n - 1; location.hash = '#diary'; });
+    on('at-skip', function () { noteDays.forEach(function (dn) { var d = day(dn); d.skip = 1; d.t = Date.now(); dirty(dn); }); save(); renderNow(); toast('Skipped. You can turn these reminders off under More.', 6000); });
+    main.querySelectorAll('[data-fix]').forEach(function (b) { b.addEventListener('click', function () { focus = +b.dataset.fix; location.hash = '#diary'; setTimeout(function () { var t = main.querySelector('button[data-place]'); if (t) t.scrollIntoView({ block: 'center' }); }, 250); }); });
     on('at-backup', function () { location.hash = '#more'; });
   }
 
@@ -734,12 +773,14 @@
   }
 
   /* ---------- more ---------- */
+  var moreOpen = {};
   function renderMore() {
     var st = S.settings, c = st.custom;
-    main.innerHTML = '<div class="wrap"><div class="cols"><div class="stack"><div class="card"><h3>Driver and base</h3><div class="form">'
+    var parts = st.parts || {}, usesCustom = st.opt === 'custom' || Object.keys(S.days).some(function (k) { return S.days[k].opt === 'custom'; }), op = function (id) { return moreOpen[id] ? ' open' : ''; };
+    main.innerHTML = '<div class="wrap"><div class="cols"><div class="stack"><h2 class="sect">Driver</h2><div class="card"><h3>Driver and base</h3><div class="form">'
       + '<label>Driver name<input id="s-name" value="' + esc(st.name) + '" autocomplete="name"></label><label>Usual number plate<input id="s-plate" value="' + esc(st.plate) + '" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"></label><label>Licence number (printed on diary pages)<input id="s-licence" inputmode="numeric" value="' + esc(st.licence || '') + '" autocomplete="off"></label>'
       + '<label>Base state (time zone)<select id="s-base">' + Object.keys(ZONES).map(function (z) { return '<option' + (z === st.base ? ' selected' : '') + '>' + z + '</option>'; }).join('') + '</select></label>'
-      + '<label>Usual hours option' + optSelect('s-opt', st.opt) + '</label>'
+      + '<label>Usual hours option' + optSelect('s-opt', optOf(nowBase().n)) + '</label>'
       + '<label>Accreditation number (BFM, AFM, ACA)<input id="s-accr" value="' + esc(st.accr) + '" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"></label>'
       + '<label>Clock<select id="s-clock"><option value="24"' + (st.clock == 24 ? ' selected' : '') + '>24-hour (20:00)</option><option value="12"' + (st.clock == 12 ? ' selected' : '') + '>12-hour (8pm)</option></select></label>'
       + '<label>Alerts while the app is open<select id="s-alerts"><option value="1"' + (st.alerts !== false ? ' selected' : '') + '>On: warn 30 minutes before a limit, and when a rest is complete</option><option value="0"' + (st.alerts === false ? ' selected' : '') + '>Off</option></select></label>'
@@ -749,25 +790,46 @@
       + (function () {
         var bk = (st.books || []).slice().sort(function (x, y) { return x.d < y.d ? 1 : -1; }), cur = pageOf(nowBase().n), rg = st.regos || {};
         var chips = function (kind, label) { var L = rg[kind] || []; return '<div><small class="hint">' + label + '</small><div class="regolist">' + (L.length ? L.map(function (x, i) { return '<span class="chip">' + esc(x) + '<button type="button" class="chipx" data-rgx="' + kind + ':' + i + '" aria-label="Remove ' + esc(x) + '">×</button></span>'; }).join('') : '<span class="hint">None saved yet. They are saved when you type them.</span>') + '</div></div>'; };
-        return '<div class="card"><h3>My work diary book</h3><p class="hint">Enter the number of your paper work diary and the page you are on. The app then counts the page for every day after that, and prints both on the diary pages.</p>'
+        return '<h2 class="sect">Paper diary and vehicles</h2><details class="card fold" id="mo-book"' + op('mo-book') + '><summary>My work diary book' + (cur ? ' · page ' + cur.page : '') + '</summary><p class="hint">Enter the number of your paper work diary and the page you are on. The app then counts the page for every day after that, and prints both on the diary pages.</p>'
           + (cur ? '<p class="note" style="border-color:var(--work);color:var(--ink);margin:10px 0">Today: ' + (cur.no ? 'book ' + esc(cur.no) + ', ' : '') + 'page ' + cur.page + '</p>' : '')
           + '<div class="form" style="margin-top:10px"><label>Work diary number<input id="s-book" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="' + esc(bk.length ? bk[0].no || '' : '') + '"></label><label>Page number<input id="s-page" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="54"></label><label>That page is for this day<input id="s-pdate" type="date" value="' + keyOf(nowBase().n) + '"></label>'
           + '<label>Days with no work<select id="s-pskip"><option value="0"' + (st.pageSkip ? '' : ' selected') + '>Use a page every day</option><option value="1"' + (st.pageSkip ? ' selected' : '') + '>Do not use a page</option></select></label></div><div class="tools" style="margin-top:12px"><button class="btn pri" id="s-booksave">Save page number</button></div>'
-          + (bk.length ? '<div class="stack" style="gap:6px;margin-top:12px">' + bk.map(function (x) { return '<div class="bookrow"><span>From ' + fmtDay(dayNum(x.d), true) + ': ' + (x.no ? 'book ' + esc(x.no) + ', ' : '') + 'page ' + x.p + '</span><button class="btn sm danger" data-bkx="' + x.d + '">Remove</button></div>'; }).join('') + '</div><p class="hint" style="margin-top:8px">New book, or the count is wrong? Save a new line with the right day and page. Days before it keep their old numbers.</p>' : '') + '</div>'
-          + '<div class="card stack" style="gap:10px"><h3>Saved trucks and trailers</h3>' + chips('truck', 'Trucks') + chips('trailer', 'Trailers') + '</div>';
+          + (bk.length ? '<div class="stack" style="gap:6px;margin-top:12px">' + bk.map(function (x) { return '<div class="bookrow"><span>From ' + fmtDay(dayNum(x.d), true) + ': ' + (x.no ? 'book ' + esc(x.no) + ', ' : '') + 'page ' + x.p + '</span><button class="btn sm danger" data-bkx="' + x.d + '">Remove</button></div>'; }).join('') + '</div><p class="hint" style="margin-top:8px">New book, or the count is wrong? Save a new line with the right day and page. Days before it keep their old numbers.</p>' : '') + '</details>'
+          + '<details class="card fold" id="mo-rego"' + op('mo-rego') + '><summary>Saved trucks and trailers</summary><div class="stack" style="gap:10px">' + chips('truck', 'Trucks') + chips('trailer', 'Trailers') + '</div></details>';
       })()
-      + '<div class="card"><h3>AFM / ACH limits from your certificate</h3><div class="form">'
+      + '<div class="card"' + (usesCustom ? '' : ' hidden') + '><h3>AFM / ACH limits from your certificate</h3><div class="form">'
       + '<label>Most work in 24 hours (h)<input type="number" id="c-dayWork" min="1" max="24" step="0.25" value="' + c.dayWork + '"></label><label>Least continuous rest in 24 hours (h)<input type="number" id="c-dayRest" min="0" max="24" step="0.25" value="' + c.dayRest + '"></label>'
       + '<label>Most work in 7 days (h, 0 = none)<input type="number" id="c-w7" min="0" max="168" value="' + c.w7 + '"></label><label>Most work in 14 days (h, 0 = none)<input type="number" id="c-w14" min="0" max="336" value="' + c.w14 + '"></label>'
       + '<label>Most work in 28 days (h, 0 = none)<input type="number" id="c-w28" min="0" max="672" value="' + c.w28 + '"></label></div><p class="hint" style="margin-top:10px">Used only on days set to AFM / ACH.</p></div></div>'
-      + '<div class="stack"><div class="card stack" style="gap:12px"><h3>Your records</h3><div class="sync" id="sync">' + syncText() + '</div>'
+      + '<div class="stack"><h2 class="sect">Backup and account</h2><div class="card stack" style="gap:12px"><h3>Your records</h3><div class="sync" id="sync">' + syncText() + '</div>'
       + '<div class="tools"><button class="btn" id="exp">Save a backup file</button><button class="btn" id="copy">Copy backup</button><label class="btn" for="imp">Load a backup<input type="file" id="imp" accept=".json,application/json" hidden></label></div>'
       + '<div class="tools"><button class="btn" id="example">Load example fortnight</button><button class="btn danger" id="wipe">Delete all diary records</button>' + (document.querySelector('nav a[href="#rules"]') ? '' : '<button class="btn" id="gorules">Fatigue rules</button>') + '</div>'
       + '<p class="hint">' + Object.keys(S.days).filter(function (k) { return S.days[k].s && S.days[k].s.indexOf('w') >= 0; }).length + ' days with work recorded.</p></div>'
-      + (window.WDDrive ? window.WDDrive.card() : '') + '<div class="card"><h3>About</h3><p class="note warn">This is a counting helper, not an approved Electronic Work Diary. You must still fill in your written work diary (or an NHVR approved EWD). Limits are outer limits: do not drive if you are tired.</p><p class="hint" style="margin-top:10px">Rules follow the NHVR National Driver Work Diary, version 1.4 (2026), Parts 3 and 4.</p>' + (HOSTED ? '' : '<p class="hint" style="margin-top:10px">Place lookup reads your location only when you tap “Find places near me”. Your position is sent to OpenStreetMap services to get nearby names. Map data © OpenStreetMap contributors.</p><p class="hint" style="margin-top:10px">Version ' + VERSION + '</p>') + '</div></div></div></div>';
+      + (window.WDDrive ? window.WDDrive.card() : '') + (HOSTED ? '' : '<div class="card stack" style="gap:10px"><h3>Account</h3><p class="hint">Log out to hand this phone to someone else, or to sign in with another account.</p><div class="tools"><button class="btn danger" id="logout">Log out</button></div></div>') + (HOSTED ? '' : '<h2 class="sect">The app</h2><div class="card"><h3>Parts of the app</h3><p class="hint">Turn off what you do not use. Nothing is deleted, and you can turn it back on.</p><div class="form" style="margin-top:10px">' + [['inv', 'Invoices'], ['forms', 'Safe Driving forms'], ['trips', 'Trip planner']].map(function (x) { return '<label>' + x[1] + '<select data-part="' + x[0] + '"><option value="1"' + (parts[x[0]] === false ? '' : ' selected') + '>On</option><option value="0"' + (parts[x[0]] === false ? ' selected' : '') + '>Off</option></select></label>'; }).join('') + '<label>Reminders to finish the record<select id="s-remind"><option value="all"' + ((st.remind || 'all') === 'all' ? ' selected' : '') + '>Places and odometers</option><option value="place"' + (st.remind === 'place' ? ' selected' : '') + '>Places only</option><option value="off"' + (st.remind === 'off' ? ' selected' : '') + '>Off</option></select></label></div></div><details class="card fold" id="mo-priv"' + op('mo-priv') + '><summary>Privacy: where your data goes</summary><ul class="todo"><li><b>On this phone.</b> Your diary, invoices, forms, notes and documents are kept in this app on this phone.</li><li><b>Your own Google Drive.</b> If you sign in with Google, a copy is saved in a folder called APS Logbook in your Drive. The app can only see the files it made itself. Nobody else can see them, and that includes the maker of this app.</li><li><b>Your location.</b> It is used only when you record a place or tap Find places near me. Your position is sent to the OpenStreetMap map services to look up the name. The app keeps only the place name you save.</li><li><b>Trip hours from addresses.</b> If you use it, the two addresses are sent to OpenStreetMap and to openrouteservice, with your own key.</li><li><b>No ads and no tracking.</b> The app does not collect usage data.</li><li><b>To remove your data.</b> Log out to remove it from this phone. Delete the APS Logbook folder in Google Drive to remove the cloud copy.</li></ul></details>') + '<div class="card"><h3>About</h3><p class="note warn">This is a counting helper, not an approved Electronic Work Diary. You must still fill in your written work diary (or an NHVR approved EWD). Limits are outer limits: do not drive if you are tired.</p><p class="hint" style="margin-top:10px">Rules follow the NHVR National Driver Work Diary, version 1.4 (2026), Parts 3 and 4.</p>' + (HOSTED ? '' : '<p class="hint" style="margin-top:10px">Place lookup reads your location only when you tap “Find places near me”. Your position is sent to OpenStreetMap services to get nearby names. Map data © OpenStreetMap contributors.</p><p class="hint" style="margin-top:10px">Version ' + VERSION + '</p>') + '</div></div></div></div>';
     function bind(id, fn) { document.getElementById(id).addEventListener('change', function (e) { fn(e.target.value); touchSettings(); save(); render(); }); }
+    main.querySelectorAll('details.fold[id]').forEach(function (dt) { dt.addEventListener('toggle', function () { moreOpen[dt.id] = dt.open; }); });
+    var srm = document.getElementById('s-remind'); if (srm) srm.addEventListener('change', function () { st.remind = srm.value; touchSettings(); save(); render(); });
+    main.querySelectorAll('select[data-part]').forEach(function (sl) { sl.addEventListener('change', function () { st.parts = Object.assign({}, st.parts); st.parts[sl.dataset.part] = sl.value === '1'; touchSettings(); save(); render(); toast(sl.value === '1' ? 'Turned on.' : 'Turned off. Your saved records are kept.'); }); });
     bind('s-name', function (v) { st.name = v.trim(); }); bind('s-plate', function (v) { st.plate = v.trim().toUpperCase(); }); bind('s-licence', function (v) { st.licence = v.trim(); }); bind('s-base', function (v) { st.base = v; });
-    bind('s-opt', function (v) { st.opt = v; }); bind('s-accr', function (v) { st.accr = v.trim().toUpperCase(); }); bind('s-clock', function (v) { st.clock = +v; }); bind('s-tips', function (v) { st.tips = v === '1'; }); bind('s-alerts', function (v) { st.alerts = v === '1'; if (st.alerts && window.Notification && Notification.permission === 'default') { try { Notification.requestPermission(); } catch (e) {} } });
+    document.getElementById('s-opt').addEventListener('change', function (e) {
+      var v = e.target.value, nb = nowBase(), was = optOf(nb.n), hasWork = Object.keys(S.days).some(function (k) { return S.days[k].s && S.days[k].s.indexOf('w') >= 0; });
+      var whole = function () { st.opt = v; for (var k in S.days) if (S.days[k].opt) { delete S.days[k].opt; S.days[k].t = Date.now(); dirty(dayNum(k)); } touchSettings(); save(); render(); toast(FM.OPTIONS[v].name + ' now applies to your whole diary.'); };
+      if (!hasWork) return whole();
+      modal('<h2>Change to ' + esc(FM.OPTIONS[v].name) + '</h2><p class="hint">From which day do you work under ' + esc(FM.OPTIONS[v].name) + '? Days before it stay on their own hours option, so they are still checked by the right rules.</p><div class="form" style="grid-template-columns:1fr"><label>First day on ' + esc(FM.OPTIONS[v].name) + '<input type="date" id="mo-d" value="' + keyOf(nb.n) + '"></label></div><p class="hint">To change hours option you need a rest of 48 hours in a row first, unless your earlier work already fits the new rules. The app checks this for you.</p><div class="acts" style="flex-wrap:wrap"><button class="btn pri" id="mo-ok" style="flex:1 1 100%">Change from this day</button><button class="btn" id="mo-all">My whole diary is ' + esc(FM.OPTIONS[v].name) + '</button><button class="btn" data-x>Cancel</button></div>', function (box, close) {
+        box.querySelector('#mo-ok').addEventListener('click', function () {
+          var dk = box.querySelector('#mo-d').value; if (!/^\d{4}-\d\d-\d\d$/.test(dk)) return toast('Choose the day.');
+          var before = optOf(dayNum(dk) - 1); snapshot();
+          for (var k in S.days) if (k > dk && S.days[k].opt) { delete S.days[k].opt; S.days[k].t = Date.now(); dirty(dayNum(k)); }
+          var d = day(dayNum(dk)); d.opt = v; d.t = Date.now(); dirty(dayNum(dk));
+          var hasEarlier = Object.keys(S.days).some(function (k) { return k < dk && S.days[k].s && S.days[k].s.indexOf('w') >= 0; });
+          if (!hasEarlier) { st.opt = v; delete d.opt; } else if (!Object.keys(S.days).some(function (k) { return k < dk && S.days[k].opt; })) st.opt = before; // earlier days keep the option they were on
+          touchSettings(); save(); close(); render(); toast(FM.OPTIONS[v].name + ' applies from ' + fmtDay(dayNum(dk)) + ' onward.', 6000);
+        });
+        box.querySelector('#mo-all').addEventListener('click', function () { snapshot(); close(); whole(); });
+        box.addEventListener('click', function (ev) { if (ev.target.closest('[data-x]')) e.target.value = was; });
+      });
+    });
+    bind('s-accr', function (v) { st.accr = v.trim().toUpperCase(); }); bind('s-clock', function (v) { st.clock = +v; }); bind('s-tips', function (v) { st.tips = v === '1'; }); bind('s-alerts', function (v) { st.alerts = v === '1'; if (st.alerts && window.Notification && Notification.permission === 'default') { try { Notification.requestPermission(); } catch (e) {} } });
     bind('s-pskip', function (v) { st.pageSkip = v === '1'; });
     on('s-booksave', function () {
       var no = document.getElementById('s-book').value.trim().toUpperCase(), p = parseInt(document.getElementById('s-page').value, 10), d = document.getElementById('s-pdate').value;
@@ -796,6 +858,7 @@
     });
     on('gorules', function () { location.hash = '#rules'; });
     if (window.WDDrive) window.WDDrive.bind();
+    on('logout', logOut);
     on('example', function () { modal('<h2>Load example fortnight?</h2><p class="hint">This fills last week and this week with a BFM night roster: Monday to Thursday 8pm to 11am with rest breaks, and a short Friday shift. It replaces any entries on those 14 days.</p><div class="acts"><button class="btn" data-x>Cancel</button><button class="btn pri" id="ex-ok">Load example</button></div>', function (box, close) { box.querySelector('#ex-ok').addEventListener('click', function () { loadExample(); close(); focus = nowBase().n; location.hash = '#fortnight'; render(); }); }); });
     on('wipe', function () { modal('<h2>Delete all records?</h2><p class="hint">Every day\'s diary entries are removed. Invoices, forms, notes and documents are not touched. Save a backup first if you may need them.</p><div class="acts"><button class="btn" data-x>Cancel</button><button class="btn danger" id="w-ok">Delete everything</button></div>', function (box, close) { box.querySelector('#w-ok').addEventListener('click', function () { for (var k in S.days) { S.days[k] = { s: BLANK, t: Date.now() }; dirty(dayNum(k)); } S.live = null; undo = []; touchSettings(); save(); close(); render(); toast('All records deleted.'); }); }); });
   }
@@ -828,14 +891,65 @@
   setInterval(function () { applyTheme(); checkAlerts(); var ch = tickLive(); if (view === 'now' && !document.querySelector('.modal')) renderNow(); else if (ch && view === 'diary' && !document.querySelector('.modal')) renderDiary(); }, 60000);
   if (!S.settings.firstUse) { S.settings.firstUse = Date.now(); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
   applyTheme(); tickLive(); route(); initSync();
-  if (!HOSTED && !S.settings.setup) {
-    if (S.settings.name || firstDay() !== null) { S.settings.setup = true; }
-    else setTimeout(function () {
-      modal('<h2>Set up your diary</h2><p class="hint">Four quick answers. You can change them later under More.</p><div class="form" style="grid-template-columns:1fr"><label>Your name<input id="su-name" autocomplete="name"></label><label>Base state (time zone)<select id="su-base">' + Object.keys(ZONES).map(function (z) { return '<option' + (z === S.settings.base ? ' selected' : '') + '>' + z + '</option>'; }).join('') + '</select></label><label>Hours option' + optSelect('su-opt', S.settings.opt) + '</label><label>Usual number plate<input id="su-plate" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"></label></div><div class="acts"><button class="btn" data-x>Later</button><button class="btn pri" id="su-ok">Save</button></div>', function (box, close) {
-        box.querySelector('#su-ok').addEventListener('click', function () { var q = function (id) { return box.querySelector(id).value.trim(); }; S.settings.name = q('#su-name'); S.settings.base = q('#su-base'); S.settings.opt = q('#su-opt'); S.settings.plate = q('#su-plate'); S.settings.setup = true; touchSettings(); save(); close(); render(); });
-      });
-    }, 300);
+  /* ---------- first open: sign-in page, then set-up page ---------- */
+  function screenOver(html, cls) { var m = document.createElement('div'); m.className = 'welcome ' + (cls || ''); m.innerHTML = '<div class="winner">' + html + '</div>'; document.body.appendChild(m); return m; }
+  function brandHTML() { return '<div class="wbrand"><svg viewBox="0 0 64 40" width="64" height="40" aria-hidden="true"><path d="M4 6v28h36" fill="none" stroke="var(--work)" stroke-width="7"/><path d="M20 10h40" stroke="var(--work)" stroke-width="7"/></svg><h1>APS Logbook</h1><p>Truck work diary, planner and paperwork</p></div>'; }
+  function welcomePage() {
+    var m = screenOver(brandHTML() + '<div class="wbtns"><button class="btn pri big" id="wl-g">Sign in with Google</button><button class="btn big" id="wl-skip">Use without an account</button></div>'
+      + '<p class="hint">With Google, your diary and paperwork are saved to your own Google Drive and come back on any phone or computer you sign in on. New here? The same button makes your account.</p><p class="hint">This app is a personal record and planner. It is not an approved electronic work diary, so keep your written work diary.</p>');
+    m.querySelector('#wl-g').addEventListener('click', function () { if (!navigator.onLine) return toast('No internet. Connect and try again, or use the app without an account for now.'); try { localStorage.setItem('workdiary.welcome', '1'); } catch (e) {} location.hash = '#now'; window.WDDrive.signIn(); });
+    m.querySelector('#wl-skip').addEventListener('click', function () { S.settings.guest = true; touchSettings(); save(); m.remove(); setupPage(); });
   }
+  function setupPage() {
+    var st = S.settings, pic = { logo: '', signature: '' };
+    var m = screenOver('<h2>Your details</h2><p class="hint">Fill in what you want now. Nothing here is required, and you can change it all later under More.</p>'
+      + '<div class="form" style="grid-template-columns:1fr"><label>Your name<input id="su-name" autocomplete="name" value="' + esc(st.name || '') + '"></label><label>Driver licence number<input id="su-lic" inputmode="numeric" autocomplete="off" value="' + esc(st.licence || '') + '"></label>'
+      + '<label>Base state (time zone)<select id="su-base">' + Object.keys(ZONES).map(function (z) { return '<option' + (z === st.base ? ' selected' : '') + '>' + z + '</option>'; }).join('') + '</select></label><label>Hours option' + optSelect('su-opt', st.opt) + '</label>'
+      + '<label>Usual number plate<input id="su-plate" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="' + esc(st.plate || '') + '"></label><label>Accreditation number (BFM or AFM)<input id="s-accr" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="' + esc(st.accr || '') + '"></label>'
+      + (window.WDOffice ? '<label>Company name<input id="su-co" autocomplete="organization"></label><label>Company logo<input type="file" id="su-logo" accept="image/*"></label><div id="su-logov"></div><div><span class="lab">Your signature</span><div id="su-sigv"></div><div id="su-sig"></div><button type="button" class="btn" id="su-draw">Draw my signature</button></div><p class="hint">The company name, logo and signature are used on the Safe Driving form. Invoices are not changed.</p>' : '')
+      + '</div><div class="wbtns"><button class="btn pri big" id="su-ok">Save and start</button><button class="btn big" id="su-later">Skip for now</button></div>', 'setup');
+    var q = function (id) { var e = m.querySelector(id); return e ? e.value.trim() : ''; };
+    if (window.WDOffice) {
+      m.querySelector('#su-logo').addEventListener('change', function (e) { var f = e.target.files[0]; if (f) window.WDOffice.readImage(f).then(function (v) { pic.logo = v; m.querySelector('#su-logov').innerHTML = '<img src="' + v + '" alt="Company logo" class="wimg">'; }, function (er) { toast(er.message); }); });
+      m.querySelector('#su-draw').addEventListener('click', function (e) { e.target.hidden = true; window.WDOffice.sigPad(m.querySelector('#su-sig'), 'Use this signature', function (v) { pic.signature = v; m.querySelector('#su-sig').innerHTML = ''; m.querySelector('#su-sigv').innerHTML = '<img src="' + v + '" alt="Your signature" class="wimg sig">'; e.target.hidden = false; e.target.textContent = 'Draw it again'; }, function () { m.querySelector('#su-sig').innerHTML = ''; e.target.hidden = false; }); });
+    }
+    function finish(saveIt) {
+      if (saveIt) { st.name = q('#su-name'); st.licence = q('#su-lic'); st.base = q('#su-base') || st.base; st.opt = q('#su-opt') || st.opt; st.plate = q('#su-plate').toUpperCase(); st.accr = q('#s-accr').toUpperCase(); if (st.plate) addRego('truck', st.plate); }
+      st.setup = true; touchSettings(); save(); m.remove(); render();
+      if (saveIt && window.WDOffice && (q('#su-co') || pic.logo || pic.signature)) window.WDOffice.saveProfile({ name: st.name, licence: st.licence, company: q('#su-co'), logo: pic.logo, signature: pic.signature }).catch(function () { toast('Your details are saved. The logo or signature could not be saved. Add them later under Paperwork, Forms.'); });
+    }
+    m.querySelector('#su-ok').addEventListener('click', function () { finish(true); });
+    m.querySelector('#su-later').addEventListener('click', function () { finish(false); });
+  }
+  function hasData() { return !!(S.settings.name || firstDay() !== null); }
+  function boot() {
+    if (HOSTED) return;
+    var back = false; try { back = localStorage.getItem('workdiary.welcome') === '1'; localStorage.removeItem('workdiary.welcome'); } catch (e) {}
+    if (S.settings.setup) return;
+    if (hasData()) { S.settings.setup = true; return; }
+    var D2 = window.WDDrive;
+    if (D2 && D2.connected()) { // just signed in: fetch what this account already has, then ask only if it is a new driver
+      var w = screenOver(brandHTML() + '<p class="wload" role="status">Getting your diary from Google Drive…</p>');
+      var done = false, go = function () { if (done) return; done = true; w.remove(); if (S.settings.setup || hasData()) { S.settings.setup = true; touchSettings(); save(); render(); toast('Welcome back. Your diary is loaded.'); } else setupPage(); };
+      D2.syncNow().then(go, go); setTimeout(go, 12000);
+    } else if (!D2 || S.settings.guest) setupPage();
+    else welcomePage(); // also after a cancelled Google sign-in
+  }
+  function logOut() {
+    var D2 = window.WDDrive, on = D2 && D2.connected();
+    modal('<h2>Log out?</h2><p class="hint">' + (on ? 'The app first saves everything to your Google Drive, then removes your diary and paperwork from this phone. When you sign in again, it all comes back.' : 'You are not signed in to Google, so there is no copy in the cloud. Logging out removes your diary and paperwork from this phone for good. Save a backup file first.') + '</p><p class="hint" id="lo-s" role="status"></p><div class="acts"><button class="btn" data-x>Cancel</button><button class="btn danger" id="lo-ok">' + (on ? 'Save and log out' : 'Delete and log out') + '</button></div>', function (box, close) {
+      box.querySelector('#lo-ok').addEventListener('click', function () {
+        var s = box.querySelector('#lo-s'), btn = box.querySelector('#lo-ok'); btn.disabled = true;
+        var wipe = function () { s.textContent = 'Logging out…'; try { localStorage.removeItem(KEY); } catch (e) {} if (D2) D2.forget(); (window.WDOffice ? window.WDOffice.wipe() : Promise.resolve()).then(function () { location.replace(location.pathname); }); };
+        if (!on) return wipe();
+        if (!navigator.onLine) { s.textContent = 'No internet, so your latest changes cannot be saved to Google Drive. Connect and try again. Nothing was removed.'; btn.disabled = false; return; }
+        if (!D2.signedIn()) { s.textContent = 'Your Google sign-in has run out. Tap the Drive button at the top to sign in, then log out again. Nothing was removed.'; btn.disabled = false; return; }
+        s.textContent = 'Saving to Google Drive…';
+        D2.syncNow().then(function () { if (D2.state() === 'ok') wipe(); else { s.textContent = 'The save to Google Drive did not finish. Try again. Nothing was removed.'; btn.disabled = false; } });
+      });
+    });
+  }
+  window.addEventListener('load', function () { setTimeout(boot, 50); });
   if (!HOSTED) {
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
@@ -844,5 +958,5 @@
       navigator.serviceWorker.addEventListener('controllerchange', function () { if (hadSW) toast('App updated. Close and open it again to use the new version.'); });
     }
   }
-  window.__wd = { S: S, loadExample: loadExample, render: render, pageOf: pageOf, pageSvg: pageSvg };
+  window.__wd = { S: S, loadExample: loadExample, render: render, pageOf: pageOf, pageSvg: pageSvg, an: analyseAll, optOf: optOf, diaryDay: diaryDay };
 })();

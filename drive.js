@@ -4,7 +4,7 @@
 (function () {
   'use strict';
   var WD = window.WD, K = 'workdiary.drive', OK = 'workdiary.oauth', SCOPE = 'https://www.googleapis.com/auth/drive.file';
-  var AUTH = 'https://accounts.google.com/o/oauth2/v2/auth', API = 'https://www.googleapis.com', FOLDER = 'APS Logbook', MAIN = 'sync.json', KEEP = 10;
+  var AUTH = 'https://accounts.google.com/o/oauth2/v2/auth', API = 'https://www.googleapis.com', FOLDER = 'APS Logbook', MAIN = 'sync.json', KEEP = 30;
   var cfg = { clientId: '', connected: false, token: '', exp: 0, folderId: '', fileId: '', version: '', hash: '', lastSync: 0, backupDay: '' };
   var BUILTIN = '776820088729-3prn1icrmoca7luv9v4v1qa2k0h88csr.apps.googleusercontent.com'; // the app owner's public Client ID
   try { Object.assign(cfg, JSON.parse(localStorage.getItem(K) || '{}')); } catch (e) {}
@@ -15,11 +15,11 @@
   function redirectUri() { return location.origin + location.pathname.replace(/index\.html$/, ''); }
 
   /* ---------- sign-in (OAuth 2.0 for client-side web apps, redirect) ---------- */
-  function signIn(silent) {
+  function signIn(silent, auto) {
     if (!cfg.clientId) { WD.toast('Paste your Google Client ID first.'); return; }
     if (!navigator.onLine) { WD.toast('No internet. Sign in when you are online.'); return; }
     var st = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    try { localStorage.setItem(OK, JSON.stringify({ state: st, silent: !!silent, back: location.hash || '#more' })); } catch (e) {}
+    try { localStorage.setItem(OK, JSON.stringify({ state: st, silent: !!silent, auto: !!auto, back: location.hash || '#more' })); } catch (e) {}
     var q = new URLSearchParams({ client_id: cfg.clientId, redirect_uri: redirectUri(), response_type: 'token', scope: SCOPE, state: st, include_granted_scopes: 'true' });
     if (silent) q.set('prompt', 'none');
     location.assign(AUTH + '?' + q.toString());
@@ -31,6 +31,7 @@
     history.replaceState(null, '', location.pathname + location.search + ((saved && saved.back) || '#more'));
     if (!saved || p.get('state') !== saved.state) { note = 'Google sign-in could not be checked. Try again.'; }
     else if (p.get('access_token')) { cfg.token = p.get('access_token'); cfg.exp = Date.now() + ((+p.get('expires_in') || 3600) - 90) * 1000; cfg.connected = true; keep(); }
+    else if (saved.silent && saved.auto) { /* quiet try at app start did not work: leave it, the chip offers sign-in */ }
     else if (saved.silent && /interaction_required|login_required|consent_required|account_selection_required/.test(p.get('error') || '')) { setTimeout(function () { signIn(false); }, 0); return; }
     else note = p.get('error') === 'access_denied' ? 'Google sign-in was cancelled.' : 'Google sign-in failed (' + (p.get('error') || 'unknown') + ').';
     window.dispatchEvent(new Event('hashchange'));
@@ -94,7 +95,7 @@
       if (mainFile && h === cfg.hash && mainFile.id === cfg.fileId) { cfg.version = String(mainFile.version); return; }
       var text = JSON.stringify({ app: 'work-diary-sync', v: 1, saved: new Date().toISOString(), days: st.days, settings: st.settings, office: office });
       return (mainFile ? update(mainFile.id, text) : create(MAIN, fid, text)).then(function (f) { cfg.fileId = f.id; cfg.version = String(f.version); cfg.hash = h; mainFile = { id: f.id }; });
-    }).then(function () { // one dated backup copy a day, newest ten kept
+    }).then(function () { // one dated backup copy a day, newest thirty kept
       var day = new Date().toISOString().slice(0, 10); if (cfg.backupDay === day || !mainFile) return;
       var name = 'backup-' + day + '.json';
       return (files[name] ? Promise.resolve() : api('/drive/v3/files/' + mainFile.id + '/copy?fields=id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, parents: [fid] }) })).then(function () {
@@ -129,12 +130,34 @@
     var last = cfg.lastSync ? 'Last synced ' + new Date(cfg.lastSync).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + '.' : 'Not synced yet.';
     return (note ? note + ' ' : state === 'ok' ? 'Connected. ' : '') + last;
   }
+  function backups() { return folder().then(function (fid) { return list("'" + fid + "' in parents and name contains 'backup-'"); }).then(function (all) { return all.filter(function (f) { return /^backup-\d{4}-\d\d-\d\d\.json$/.test(f.name); }).sort(function (x, y) { return x.name < y.name ? 1 : -1; }); }); }
+  function restoreDialog() {
+    if (!navigator.onLine) return WD.toast('No internet. Try again when you are online.');
+    if (!tokenOk()) return signIn(true);
+    WD.toast('Looking for backups…');
+    backups().then(function (L) {
+      if (!L.length) return WD.toast('No backup copies yet. The app makes one a day.');
+      var m = document.createElement('div'); m.className = 'modal';
+      m.innerHTML = '<div class="box" role="dialog" aria-modal="true"><h2>Restore from a backup</h2><p class="hint">The app keeps one copy a day in your Google Drive, for the last ' + KEEP + ' days. Choose the day to go back to. Days you recorded after that date are kept.</p><div class="plist" style="max-height:46vh">' + L.map(function (f) { var k = f.name.slice(7, 17); return '<button type="button" data-id="' + f.id + '" data-k="' + k + '"><span>' + WD.esc(WD.fmtDay(WD.dayNum(k), true)) + '</span><small>first save of that day</small></button>'; }).join('') + '</div><div class="acts"><button class="btn" data-x>Cancel</button></div></div>';
+      document.body.appendChild(m);
+      m.addEventListener('click', function (e) {
+        if (e.target === m || e.target.closest('[data-x]')) return m.remove();
+        var b = e.target.closest('button[data-id]'); if (!b) return;
+        if (!b.dataset.sure) { m.querySelectorAll('button[data-id]').forEach(function (x) { delete x.dataset.sure; x.querySelector('small').textContent = 'first save of that day'; }); b.dataset.sure = '1'; b.querySelector('small').textContent = 'Tap again to restore this one'; return; }
+        m.remove(); WD.toast('Restoring…');
+        read(b.dataset.id).then(function (t) { var p = JSON.parse(t); return WD.loadBackup({ days: p.days, settings: p.settings, office: p.office }); }).then(function () { WD.toast('Restored the backup from ' + WD.fmtDay(WD.dayNum(b.dataset.k)) + '.', 6000); changed(); }).catch(function (er) { WD.toast((er && er.message) || 'That backup could not be read.'); });
+      });
+    }).catch(function (e) { WD.toast(e && e.auth ? 'Sign in to Google again first.' : (e && e.message) || 'The backups could not be listed.'); });
+  }
   window.WDDrive = {
-    changed: changed, connected: function () { return !!cfg.connected; },
+    changed: changed, connected: function () { return !!cfg.connected; }, signedIn: function () { return !!cfg.connected && tokenOk(); },
+    signIn: function () { if (!/\.apps\.googleusercontent\.com$/.test(cfg.clientId)) cfg.clientId = BUILTIN; keep(); signIn(false); },
+    syncNow: function () { return cfg.connected ? sync() : Promise.resolve(); }, state: function () { return state; },
+    forget: function () { try { localStorage.removeItem(K); localStorage.removeItem(OK); } catch (e) {} },
     card: function () {
       var e = WD.esc;
       return '<div class="card stack" style="gap:12px"><h3>Google Drive sync</h3><div class="sync" id="gd-status" role="status">' + e(statusText()) + '</div>'
-        + (cfg.connected ? '<div class="tools"><button class="btn pri" id="gd-sync">Sync now</button>' + (tokenOk() ? '' : '<button class="btn" id="gd-in">Sign in again</button>') + '<button class="btn danger" id="gd-out">Disconnect</button></div><p class="hint">Changes sync by themselves about 12 seconds after you stop typing, and when you open the app. Google asks you to sign in again about once an hour: tap the Drive button at the top when it says “sign in”. Your files are in the “' + FOLDER + '” folder in your Google Drive, with one backup copy a day (newest ' + KEEP + ' kept).</p>'
+        + (cfg.connected ? '<div class="tools"><button class="btn pri" id="gd-sync">Sync now</button>' + (tokenOk() ? '' : '<button class="btn" id="gd-in">Sign in again</button>') + '<button class="btn" id="gd-restore">Restore from a backup</button><button class="btn danger" id="gd-out">Disconnect</button></div><p class="hint">Changes sync by themselves about 12 seconds after you stop typing, and when you open the app. Google asks you to sign in again about once an hour: tap the Drive button at the top when it says “sign in”. Your files are in the “' + FOLDER + '” folder in your Google Drive, with one backup copy a day (newest ' + KEEP + ' kept).</p>'
           : '<div class="tools"><button class="btn pri" id="gd-in" style="flex:1 1 100%">Sign in with Google</button></div><p class="hint">Sign in with the same Google account on each phone or computer to see the same diary, invoices, forms, notes and documents. The app only sees the files it makes itself, in a folder called “' + FOLDER + '” in your Google Drive.</p>'
             + '<details class="fold"><summary>Advanced: use my own Google Client ID</summary><div class="form" style="grid-template-columns:1fr;margin-top:8px"><label>Google Client ID<input id="gd-id" value="' + e(cfg.clientId) + '" placeholder="1234567890-abc.apps.googleusercontent.com" autocomplete="off" autocapitalize="off" spellcheck="false"></label></div><p class="hint">Only needed if you host your own copy of this app. Address to allow in Google Cloud: <b>' + e(redirectUri()) + '</b></p></details>') + '</div>';
     },
@@ -142,10 +165,15 @@
       var id = document.getElementById('gd-id'); if (id) id.addEventListener('change', function () { cfg.clientId = id.value.trim() || BUILTIN; keep(); });
       var a = document.getElementById('gd-in'); if (a) a.addEventListener('click', function () { if (id) { cfg.clientId = id.value.trim() || BUILTIN; keep(); } if (!/\.apps\.googleusercontent\.com$/.test(cfg.clientId)) return WD.toast('That does not look like a Google Client ID. It ends with .apps.googleusercontent.com'); signIn(false); });
       var s = document.getElementById('gd-sync'); if (s) s.addEventListener('click', function () { if (!tokenOk()) return signIn(true); sync(true); });
+      var rs = document.getElementById('gd-restore'); if (rs) rs.addEventListener('click', restoreDialog);
       var o = document.getElementById('gd-out'); if (o) o.addEventListener('click', function () { cfg.connected = false; cfg.token = ''; cfg.exp = 0; cfg.folderId = ''; cfg.fileId = ''; cfg.version = ''; cfg.hash = ''; keep(); set('off', 'Disconnected. Your records stay on this device and in your Drive.'); WD.render(); });
     }
   };
-  if (cfg.connected) { set(tokenOk() ? 'ok' : 'need', tokenOk() ? '' : 'Tap to sign in to Google again.'); if (tokenOk()) setTimeout(function () { sync(); }, 1500); }
+  if (cfg.connected) {
+    set(tokenOk() ? 'ok' : 'need', tokenOk() ? '' : 'Tap to sign in to Google again.');
+    if (tokenOk()) setTimeout(function () { sync(); }, 1500);
+    else if (navigator.onLine && !/(^|&)(access_token|error)=/.test(location.hash) && Date.now() - (cfg.lastQuiet || 0) > 600000) { cfg.lastQuiet = Date.now(); keep(); signIn(true, true); }
+  }
   window.addEventListener('online', function () { if (cfg.connected) sync(); });
   document.addEventListener('visibilitychange', function () { if (!document.hidden && cfg.connected && Date.now() - cfg.lastSync > 120000) sync(); });
   if ((location.hash || '') === '#more') WD.render();
