@@ -4,7 +4,7 @@
   var ZONES = { ACT: 'Australia/Sydney', NSW: 'Australia/Sydney', VIC: 'Australia/Melbourne', QLD: 'Australia/Brisbane', SA: 'Australia/Adelaide', TAS: 'Australia/Hobart', NT: 'Australia/Darwin', WA: 'Australia/Perth' };
   var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var BLANK = new Array(D + 1).join('r');
-  var KEY = 'workdiary.v1', VERSION = '2.9.0';
+  var KEY = 'workdiary.v1', VERSION = '2.10.0';
   var HOSTED = !!(window.claude && window.claude.use); // true inside Claude, false on your own site
 
   /* ---------- state ---------- */
@@ -126,7 +126,7 @@
       var e = s; while (e + 1 < opts.length && opts[e + 1] === opts[s]) e++;
       var seg = segmentW(W, d0, d0 + s, d0 + e), res = FM.analyse(seg.W, opts[s], cfgOf(opts[s]));
       for (var i = seg.a; i < seg.b; i++) { flags[i] = res.flags[i]; ln[i] = res.ln[i]; }
-      res.findings.forEach(function (fd) { if (fd.at >= seg.a && fd.at < seg.b) { fd.opt = opts[s]; findings.push(fd); } });
+      res.findings.forEach(function (fd) { if (fd.at >= seg.a && fd.at < seg.b) { fd.opt = opts[s]; fd.W = seg.W; findings.push(fd); } });
       if (s > 0 && opts[s - 1] !== 'custom' && !seg.reset && res.findings.some(function (fd) { return !fd.warn && fd.at < seg.a && fd.at >= seg.a - 14 * D; })) findings.push({ rule: 'reset', label: 'Changing hours option', kind: 'rest', warn: true, at: seg.a, from: seg.a, to: seg.a, slots: [], msg: 'You changed to ' + FM.OPTIONS[opts[s]].name + ' without a rest of 48 hours in a row, and your work before the change does not fit ' + FM.OPTIONS[opts[s]].name + ' rules. Take a 48-hour rest before you change hours option.' });
       if (s > 0 && opts[s - 1] === 'custom' && !seg.reset) findings.push({ rule: 'reset', label: 'Changing hours option', kind: 'rest', warn: true, at: seg.a, from: seg.a, to: seg.a, slots: [], msg: 'To change from AFM, ACH or exemption hours you must first take a reset rest break of 48 continuous hours.' });
       s = e + 1;
@@ -157,6 +157,7 @@
 
   /* ---------- rendering ---------- */
   var main = document.getElementById('main');
+  main.addEventListener('click', function (e) { var g = e.target.closest && e.target.closest('[data-go]'); if (!g) return; focus = +g.dataset.go; if (location.hash === '#diary') render(); else location.hash = '#diary'; window.scrollTo(0, 0); });
   function loadBackup(p) { // put a backup back: its days win, days made after it are kept
     if (!p || !p.days) throw Error('That is not a work diary backup.'); snapshot();
     for (var k in p.days) if (/^\d{4}-\d\d-\d\d$/.test(k) && p.days[k] && typeof p.days[k].s === 'string' && p.days[k].s.length === D) { S.days[k] = p.days[k]; S.days[k].t = Date.now(); dirty(dayNum(k)); }
@@ -179,12 +180,28 @@
       if (ch) { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
       return ch;
     } };
+  function tidyOpts() { var prev = S.settings.opt; Object.keys(S.days).sort().forEach(function (k) { var d = S.days[k]; if (!d.opt) return; if (d.opt === prev) { delete d.opt; d.t = Date.now(); dirty(dayNum(k)); } else prev = d.opt; }); }
+  function modeList() { // days that carry their own hours option
+    var ks = Object.keys(S.days).filter(function (k) { return S.days[k].opt; }).sort();
+    if (!ks.length) return '';
+    return '<div class="modes" id="modes"><b>Hours option by date</b><div><span>Start of diary</span><span>' + esc(FM.OPTIONS[S.settings.opt].name) + '</span><span></span></div>' + ks.map(function (k) { return '<div><span>From ' + fmtDay(dayNum(k), true) + '</span><span>' + esc(FM.OPTIONS[S.days[k].opt].name) + '</span><button type="button" class="btn sm" data-moderm="' + k + '">Remove</button></div>'; }).join('') + '<p class="hint">Remove a line if that change was a mistake. The day then follows the line above it.</p></div>';
+  }
+  function loneBlocks(n) { // one 15-minute work block with 4 hours or more of rest on both sides
+    if (!AN) return []; var off = (n - AN.d0) * D, W = AN.W, out = [];
+    for (var i = off; i < off + D; i++) {
+      if (!W[i] || W[i - 1] || W[i + 1]) continue;
+      var ok = true, j; for (j = 2; j <= 16 && ok; j++) if (W[i - j] || W[i + j]) ok = false;
+      if (ok) out.push(i - off);
+    }
+    return out;
+  }
+  function topOpt(n) { var nw = nowBase(), o = FM.OPTIONS[optOf(n)], other = n !== nw.n && optOf(n) !== optOf(nw.n); document.getElementById('topopt').innerHTML = '<b>' + esc(o.name) + '</b>' + (other ? 'on ' + esc(fmtDay(n)) : 'Base ' + esc(S.settings.base)); }
   function render() {
     var nw = nowBase(); if (focus == null) focus = nw.n;
     var office = window.WDOffice && window.WDOffice.views.indexOf(view) >= 0, navView = office ? 'invoices' : (view === 'rules' && !document.querySelector('nav a[href="#rules"]') ? 'more' : view === 'fortnight' && window.WDPlan ? 'plan' : view);
     document.querySelectorAll('nav a').forEach(function (a) { a.setAttribute('aria-current', a.getAttribute('href') === '#' + navView ? 'page' : 'false'); });
     if (window.WDOffice) { if (office) { var o0 = FM.OPTIONS[optOf(nw.n)]; document.getElementById('topopt').innerHTML = '<b>' + esc(o0.name) + '</b>Base ' + esc(S.settings.base); return window.WDOffice.render(view); } window.WDOffice.leave(); }
-    var o = FM.OPTIONS[optOf(nw.n)]; document.getElementById('topopt').innerHTML = '<b>' + esc(o.name) + '</b>Base ' + esc(S.settings.base);
+    topOpt(view === 'diary' ? focus : nw.n);
     if (view === 'plan' && window.WDPlan) return window.WDPlan.render();
     if (view === 'diary') renderDiary(); else if (view === 'now') renderNow(); else if (view === 'fortnight') renderFort(); else if (view === 'rules') renderRules(); else renderMore();
   }
@@ -211,8 +228,49 @@
     }
     return h + rest.map(function (m) { return meterHTML(m, ref); }).join('');
   }
+  function absD(abs) { return fmtDay(AN.d0 + Math.floor(abs / D)) + ' ' + clock(abs); }
+  function dur(sl) { var h = Math.floor(sl / 4), m = (sl % 4) * 15; return h ? h + 'h' + (m ? ' ' + m + 'm' : '') : m + ' minutes'; }
+  // Where a breach comes from: the period, the entries that were counted, and the entry to check first
+  function whereHTML(f) {
+    if (!f.W || !FM.explain || f.rule === 'reset') return '';
+    var x; try { x = FM.explain(f.W, f.opt, cfgOf(f.opt), f); } catch (e) { return ''; }
+    if (!x || !x.kind) return '';
+    var clue = [], L = [], go = [], head = '', last = '', nOf = function (abs) { return AN.d0 + Math.floor(abs / D); }, addGo = function (abs) { var n = nOf(abs); if (go.indexOf(n) < 0) go.push(n); };
+    var li = function (ok, t) { return '<li class="' + (ok ? 'ok' : 'no') + '"><i>' + (ok ? '✓' : '✗') + '</i><span>' + esc(t) + '</span></li>'; };
+    var range = function (a, b) { return absD(a) + ' to ' + (nOf(a) === nOf(b) ? clock(b) : absD(b)); };
+    if (x.start && x.start.lone) { clue.push('This period starts at a very short work entry: ' + dur(x.start.len) + ' on ' + absD(x.start.at) + '. Check that entry is right.'); addGo(x.start.at); }
+    if (x.kind === 'rest') {
+      head = x.blocks ? 'Rests of 7 hours or more in this period:' : 'Rests of ' + (x.need % 4 ? dur(x.need) : x.need / 4 + ' hours') + ' in a row, or close to it, in this period' + (x.want > 1 ? ' (you need ' + x.want + ')' : '') + ':';
+      x.rests.forEach(function (r) {
+        if (r.ok) L.push(li(true, range(r.s, r.e) + ' · ' + dur(r.len)));
+        else if (r.cut) { L.push(li(false, absD(r.s) + ' onward · only ' + dur(r.len) + ' of this rest is inside the period')); addGo(r.s); }
+        else { L.push(li(false, range(r.s, r.e) + ' · ' + dur(r.len) + ' · ' + dur(r.shortBy) + ' short')); addGo(r.s); if (r.shortBy <= 8 && !x.blocks) clue.push('Your rest on ' + fmtDay(nOf(r.s)) + ' was ' + dur(r.len) + '. That is ' + dur(r.shortBy) + ' short of ' + (x.need % 4 ? dur(x.need) : x.need / 4 + ' hours') + '.'); }
+      });
+      if (f.slots && f.slots.length) last = 'After ' + absD(f.at) + ' there was no time left in this period for the rest. Work after that time is marked red.';
+    } else if (x.kind === 'night') {
+      var good = x.nights.filter(function (q) { return q.ok; }), miss = x.nights.filter(function (q) { return !q.ok; });
+      head = 'A night rest is 7 hours in a row between 10pm and 8am. This period has ' + x.got + ' of the ' + x.need + ' it needs' + (x.pair ? ', and 2 must be on days next to each other' : '') + '.';
+      if (good.length) L.push(li(true, 'Counted: ' + good.map(function (q) { return fmtDay(AN.d0 + q.k) + ' night'; }).join(', ')));
+      miss.forEach(function (q) {
+        var key = f.at >= q.lo && f.at < q.hi, det = q.best >= 16 || key;
+        L.push(li(false, fmtDay(AN.d0 + q.k) + ' night: ' + (det ? 'work ' + q.works.map(function (w) { return clock(w.s) + ' to ' + clock(w.e); }).join(', ') + '. Longest rest between 10pm and 8am was ' + dur(q.best) + '.' : 'worked through it. Longest rest was ' + dur(q.best) + '.') + (key ? ' This is the night that decided it.' : '') + (!key && q.best >= 20 ? ' Only ' + dur(28 - q.best) + ' short.' : '')));
+        if (q.works.length && (key || q.best >= 16)) addGo(q.works[0].s);
+      });
+      if (f.slots && f.slots.length) last = 'The work at ' + absD(f.at) + ' took away the last night rest this period could still use. Work in that night is marked red.';
+    } else {
+      head = (x.ln ? 'Long/night work' : 'Work') + ' counted in this period:';
+      if (x.runs) x.runs.forEach(function (w) { L.push('<li><i>•</i><span>' + esc(range(w.s, w.e) + ' · ' + dur(w.e - w.s)) + '</span></li>'); });
+      else x.days.forEach(function (q) { if (q.w) L.push('<li><i>•</i><span>' + esc(fmtDay(AN.d0 + q.k) + ' · ' + dur(q.w)) + '</span></li>'); });
+      last = 'Total ' + dur(x.used) + '. The limit is ' + dur(x.max) + '. Over by ' + dur(x.over) + ', from ' + absD(f.at) + '.';
+      addGo(f.at);
+    }
+    if (f.slots && f.slots.length) addGo(f.at);
+    return clue.map(function (t) { return '<p class="clue">' + esc(t) + '</p>'; }).join('')
+      + '<details class="where"><summary>Show me where</summary><p><b>Period checked:</b> ' + esc(absD(x.from) + ' to ' + absD(x.to)) + '</p><p>' + esc(head) + '</p><ul class="wl">' + L.join('') + '</ul>' + (last ? '<p>' + esc(last) + '</p>' : '')
+      + '<div class="tools">' + go.slice(0, 5).map(function (n) { return '<button type="button" class="btn sm" data-go="' + n + '">Open ' + fmtDay(n) + '</button>'; }).join('') + '</div><p class="hint">Only change an entry if it was recorded wrong. If the work was real, the record must stay as it is.</p></details>';
+  }
   function issueHTML(f) {
-    return '<div class="issue' + (f.warn ? ' warn' : '') + '"><b>' + esc(f.label) + '</b>' + esc(f.msg) + '<small>' + (f.to > f.from ? 'Period ' + absT(f.from) + ' to ' + absT(f.to) + ' · ' : '') + (f.kind === 'work' ? 'over from ' : 'by ') + absT(f.at) + '</small></div>';
+    return '<div class="issue' + (f.warn ? ' warn' : '') + '"><b>' + esc(f.label) + '</b>' + esc(f.msg) + '<small>' + (f.to > f.from ? 'Period ' + absD(f.from) + ' to ' + absD(f.to) + ' · ' : '') + (f.kind === 'work' ? 'over from ' : 'by ') + absD(f.at) + '</small>' + whereHTML(f) + '</div>';
   }
 
   // Smart tips before work is recorded on today or a future day. go(start) records work from that slot.
@@ -251,11 +309,11 @@
       + '<div class="card line"><h3>Daily sheet line</h3>' + sheetLine(s) + '</div>'
       + changesHTML(n, s, d)
       + '</div><div class="stack">'
-      + '<div class="card"><h3>Checks for this day</h3><div class="issues">' + (function () { var dc = dstChange(n); return dc ? '<div class="issue warn"><b>Daylight saving</b>Clocks go ' + (dc > 0 ? 'forward' : 'back') + ' ' + hm(Math.abs(dc) / 15) + ' on this day in ' + esc(S.settings.base) + '. Keep recording in your base time and write the change in Comments. The app counts this day as 24 hours, so check your totals by hand.</div>' : ''; })() + dayNotes(n).map(function (x) { return '<div class="issue warn"><b>Finish your record</b>' + esc(x) + '</div>'; }).join('') + (dayF.length ? dayF.map(issueHTML).join('') : '<div class="clean">✓ ' + (w ? 'No limit is broken by this day\'s entries.' : 'No work recorded. Counted as rest.') + '</div>') + '</div></div>'
+      + '<div class="card"><h3>Checks for this day</h3><div class="issues">' + (function () { var dc = dstChange(n); return dc ? '<div class="issue warn"><b>Daylight saving</b>Clocks go ' + (dc > 0 ? 'forward' : 'back') + ' ' + hm(Math.abs(dc) / 15) + ' on this day in ' + esc(S.settings.base) + '. Keep recording in your base time and write the change in Comments. The app counts this day as 24 hours, so check your totals by hand.</div>' : ''; })() + dayNotes(n).map(function (x) { return '<div class="issue warn"><b>Finish your record</b>' + esc(x) + '</div>'; }).join('') + loneBlocks(n).map(function (i) { return '<div class="issue warn" data-lone><b>Check this entry</b>Only 15 minutes of work at ' + clock(i) + ', with rest before and after. If it was a slip of the finger, remove it. One block can change where your 7-day and 14-day periods start.</div>'; }).join('') + (dayF.length ? dayF.map(issueHTML).join('') : '<div class="clean">✓ ' + (w ? 'No limit is broken by this day\'s entries.' : 'No work recorded. Counted as rest.') + '</div>') + '</div></div>'
       + '<div class="card"><h3>' + (isToday ? 'Where you stand now' : 'Standing at the end of this day') + '</h3><div class="meters">' + metersHTML(st, n) + '</div></div>'
       + '<div class="card form" style="grid-template-columns:1fr"><h3>Day details</h3><label>Number plate<input id="plate" value="' + esc(d.plate != null ? d.plate : S.settings.plate) + '" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"></label><label>Time of daily check (if your employer needs it)<input type="time" id="d-chk" value="' + esc(d.chk || '') + '"></label>' + (opt === 'std2' || opt === 'bfm2' ? '<label>Two-up driver name<input id="d-co" value="' + esc(d.co || '') + '" autocomplete="off"></label><label>Two-up driver licence number<input id="d-colic" inputmode="numeric" value="' + esc(d.colic || '') + '" autocomplete="off"></label>' : '') + '<label class="chk" style="flex-direction:row"><input type="checkbox" id="d-fit"' + (d.fit ? ' checked' : '') + '> Fit for duty</label><label>Comments (delays, officer notes)<textarea id="note">' + esc(d.note || '') + '</textarea></label></div>'
       + '</div></div></div>';
-    main.innerHTML = html;
+    main.innerHTML = html; topOpt(n);
     var db = document.getElementById('daybar'); if (db) main.style.setProperty('--dbh', db.offsetHeight + 'px');
     fitSheet();
     var cw = document.getElementById('canwork');
@@ -384,7 +442,12 @@
     on('prev', function () { focus--; renderDiary(); }); on('next', function () { focus++; renderDiary(); });
     on('today', function () { focus = nowBase().n; renderDiary(); });
     document.getElementById('pick').addEventListener('change', function (e) { if (e.target.value) { focus = dayNum(e.target.value); renderDiary(); } });
-    document.getElementById('dayopt').addEventListener('change', function (e) { snapshot(); day(n).opt = e.target.value; day(n).t = Date.now(); dirty(n); save(); render(); toast(FM.OPTIONS[e.target.value].name + ' applies from ' + fmtDay(n) + ' onward.'); });
+    document.getElementById('dayopt').addEventListener('change', function (e) {
+      var v = e.target.value, was = optOf(n), nm = FM.OPTIONS[v].name; e.target.value = was; if (v === was) return;
+      modal('<h2>Change to ' + esc(nm) + ' from ' + esc(fmtDay(n)) + '?</h2><p class="hint">' + esc(nm) + ' rules will check ' + esc(fmtDay(n)) + ' and every day after it, until a later day that has its own hours option. Days before it stay on ' + esc(FM.OPTIONS[optOf(n - 1)].name) + '.</p><div class="acts"><button class="btn pri" id="do-ok">Change</button><button class="btn" data-x>Cancel</button></div>', function (box, close) {
+        box.querySelector('#do-ok').addEventListener('click', function () { snapshot(); if (optOf(n - 1) === v) delete day(n).opt; else day(n).opt = v; day(n).t = Date.now(); dirty(n); tidyOpts(); save(); close(); render(); toast(nm + ' applies from ' + fmtDay(n) + ' onward.'); });
+      });
+    });
     on('undo', function () { var u = undo.pop(); if (!u) return; S.days = JSON.parse(u.days); for (var k in S.days) dirty(dayNum(k)); save(); renderDiary(); });
     on('clear', function () { snapshot(); setRange(n, 0, D, 'r'); save(); renderDiary(); });
     on('copyprev', function () { snapshot(); var d = day(n); d.s = getS(n - 1); d.t = Date.now(); dirty(n); save(); renderDiary(); });
@@ -780,7 +843,7 @@
     main.innerHTML = '<div class="wrap"><div class="cols"><div class="stack"><h2 class="sect">Driver</h2><div class="card"><h3>Driver and base</h3><div class="form">'
       + '<label>Driver name<input id="s-name" value="' + esc(st.name) + '" autocomplete="name"></label><label>Usual number plate<input id="s-plate" value="' + esc(st.plate) + '" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"></label><label>Licence number (printed on diary pages)<input id="s-licence" inputmode="numeric" value="' + esc(st.licence || '') + '" autocomplete="off"></label>'
       + '<label>Base state (time zone)<select id="s-base">' + Object.keys(ZONES).map(function (z) { return '<option' + (z === st.base ? ' selected' : '') + '>' + z + '</option>'; }).join('') + '</select></label>'
-      + '<label>Usual hours option' + optSelect('s-opt', optOf(nowBase().n)) + '</label>'
+      + '<label>Usual hours option' + optSelect('s-opt', optOf(nowBase().n)) + '</label>' + modeList()
       + '<label>Accreditation number (BFM, AFM, ACA)<input id="s-accr" value="' + esc(st.accr) + '" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"></label>'
       + '<label>Clock<select id="s-clock"><option value="24"' + (st.clock == 24 ? ' selected' : '') + '>24-hour (20:00)</option><option value="12"' + (st.clock == 12 ? ' selected' : '') + '>12-hour (8pm)</option></select></label>'
       + '<label>Alerts while the app is open<select id="s-alerts"><option value="1"' + (st.alerts !== false ? ' selected' : '') + '>On: warn 30 minutes before a limit, and when a rest is complete</option><option value="0"' + (st.alerts === false ? ' selected' : '') + '>Off</option></select></label>'
@@ -809,6 +872,7 @@
     function bind(id, fn) { document.getElementById(id).addEventListener('change', function (e) { fn(e.target.value); touchSettings(); save(); render(); }); }
     main.querySelectorAll('details.fold[id]').forEach(function (dt) { dt.addEventListener('toggle', function () { moreOpen[dt.id] = dt.open; }); });
     var srm = document.getElementById('s-remind'); if (srm) srm.addEventListener('change', function () { st.remind = srm.value; touchSettings(); save(); render(); });
+    main.querySelectorAll('[data-moderm]').forEach(function (b) { b.addEventListener('click', function () { var k = b.dataset.moderm; if (!S.days[k]) return; snapshot(); delete S.days[k].opt; S.days[k].t = Date.now(); dirty(dayNum(k)); tidyOpts(); save(); render(); toast('Removed. That day now follows the hours option before it.'); }); });
     main.querySelectorAll('select[data-part]').forEach(function (sl) { sl.addEventListener('change', function () { st.parts = Object.assign({}, st.parts); st.parts[sl.dataset.part] = sl.value === '1'; touchSettings(); save(); render(); toast(sl.value === '1' ? 'Turned on.' : 'Turned off. Your saved records are kept.'); }); });
     bind('s-name', function (v) { st.name = v.trim(); }); bind('s-plate', function (v) { st.plate = v.trim().toUpperCase(); }); bind('s-licence', function (v) { st.licence = v.trim(); }); bind('s-base', function (v) { st.base = v; });
     document.getElementById('s-opt').addEventListener('change', function (e) {

@@ -151,11 +151,11 @@
     var loads = d.loads.filter(I.activeLoad), misc = d.misc.filter(I.activeMisc), lt = loads.reduce(function (s, r) { return s + n2(r.amount); }, 0), mt = misc.reduce(function (s, r) { return s + n2(r.amount); }, 0);
     var km = loads.reduce(function (s, r) { return s + (I.isCO(r.type) ? 0 : n2(r.km)); }, 0), sub = lt + mt, g = Number(d.gst) > 0 ? Number(d.gst) : 0, tax = Math.round(sub * g) / 100;
     var L = ['Hi,', '', 'Please find attached invoice ' + d.invoiceNo + ' for the period ' + dd(d.dateFrom) + ' to ' + dd(d.dateTo) + '.', ''];
-    if (loads.length) L.push('Loads: ' + loads.length + (km ? ', total ' + km.toLocaleString('en-AU') + ' km' : '') + ' — ' + $(lt));
-    if (misc.length) L.push('Miscellaneous: ' + misc.length + (misc.length === 1 ? ' item' : ' items') + ' — ' + $(mt));
-    if (g) { L.push('Subtotal: ' + $(sub)); L.push('GST ' + g + '%: ' + $(tax)); L.push('Total including GST: ' + $(sub + tax)); } else L.push('Total: ' + $(sub));
+    if (loads.length) L.push('Loads: ' + loads.length + (km ? ' (' + km.toLocaleString('en-AU') + ' km)' : '') + ', ' + $(lt) + '.');
+    if (misc.length) L.push('Miscellaneous: ' + misc.length + (misc.length === 1 ? ' item' : ' items') + ', ' + $(mt) + '.');
+    if (g) { L.push('Subtotal: ' + $(sub) + '.'); L.push('GST ' + g + '%: ' + $(tax) + '.'); L.push('Total including GST: ' + $(sub + tax) + '.'); } else L.push('Total: ' + $(sub) + '.');
     if (d.yellowDate) { L.push(''); L.push('Yellow pages submitted to ' + dd(d.yellowDate, true) + '.'); }
-    L.push(''); L.push('Thank you,'); if (d.nameSg) L.push(d.nameSg); if (d.mobile) L.push(d.mobile);
+    L.push(''); L.push('Thank you,'); if (d.nameSg) L.push(d.nameSg); if (d.mobile) L.push('Mobile: ' + d.mobile);
     return { subject: 'Invoice ' + d.invoiceNo + ' · ' + dd(d.dateFrom) + ' to ' + dd(d.dateTo) + (d.nameSg ? ' · ' + d.nameSg : ''), text: L.join('\n') };
   }
   function docPreview(name, pages, msg) {

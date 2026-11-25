@@ -316,7 +316,7 @@
     });
     if (optId === 'bfm') {
       var lastEnd = 0;
-      c.runs.forEach(function (x) { if (x.len >= D && x.e <= T && x.e > lastEnd) lastEnd = x.e; if (x.len >= D && x.s < T && x.e >= T) lastEnd = T; });
+      c.runs.forEach(function (x) { if (x.len >= D && x.e <= T && x.e > lastEnd) lastEnd = x.e; if (x.len >= D && x.s < T && x.e >= T && T - x.s >= D) lastEnd = T; });
       out.push({ id: 'r84', group: 'fort', label: 'Work since last 24h rest', text: 'Take 24 continuous hours rest after no more than 84h work', P: 0, max: 84 * HR, used: work(c, lastEnd, T), from: lastEnd, to: null });
     }
     var cur = T > 0 && c.W[T - 1] ? 1 : 0, since = T;
@@ -340,5 +340,55 @@
     return { can: can, stop: stop, restart: restart, why: why };
   }
 
-  root.FM = { OPTIONS: OPTIONS, analyse: analyse, meters: meters, forecast: forecast, hm: hm, D: D };
+  // Where does a finding come from? Returns the entries that were counted, so the driver can check them.
+  // It reads the records only. It does not change any rule or limit.
+  function explain(Win, optId, cfg, f) {
+    var c = buildCtx(Win), a = f.from, b = f.to, out = { kind: null, at: f.at, from: a, to: b };
+    if (!(b > a) || a < 0) return out;
+    var e = a; while (e < c.N && c.W[e]) e++;
+    var gap = 0, t = e; while (t < c.N && !c.W[t] && gap < D) { t++; gap++; }
+    out.start = { at: a, len: e - a, lone: e - a <= 2 && gap >= 16 };
+    var runsIn = function (lo, hi) { var L = [], i = Math.max(0, lo), s; hi = Math.min(hi, c.N); while (i < hi) { if (c.W[i]) { s = i; while (i < hi && c.W[i]) i++; L.push({ s: s, e: i }); } else i++; } return L; };
+    if (f.kind === 'work') {
+      out.kind = 'work'; out.used = f.used; out.max = f.max; out.over = f.used - f.max;
+      var hi = b;
+      if (f.rule === 'r84') { restIn(c, a, b).some(function (x) { if (x.len >= D) { hi = x.s; return true; } return false; }); out.to = hi; }
+      if (f.rule === 'ln7') { longNight(c, rulesFor(optId, cfg).filter(function (r) { return r.id === 'd24'; })[0]); out.ln = true; }
+      if (hi - a <= D) out.runs = runsIn(a, hi);
+      else { out.days = []; for (var k = Math.floor(a / D); k * D < hi; k++) { var lo2 = Math.max(a, k * D), hi2 = Math.min(hi, (k + 1) * D), w = out.ln ? lnCount(c, lo2, hi2) : work(c, lo2, hi2); out.days.push({ k: k, w: w }); } }
+      return out;
+    }
+    if (/night rest/.test(f.msg || '')) {
+      out.kind = 'night'; out.need = optId === 'bus' ? 6 : 4; out.pair = optId === 'std' || optId === 'std2' || optId === 'bfm'; out.nights = [];
+      for (var kk = Math.floor(a / D) - 1; kk <= Math.floor(b / D); kk++) {
+        var lo = Math.max(a, kk * D + 88), hh = Math.min(b, kk * D + 128); if (hh - lo < 28) continue;
+        var run = 0, best = 0; for (t = lo; t < hh; t++) { if (t >= 0 && t < c.N && c.W[t]) run = 0; else if (++run > best) best = run; }
+        out.nights.push({ k: kk, lo: lo, hi: hh, ok: best >= 28, best: best, works: runsIn(lo, hh) });
+      }
+      c.runs.forEach(function (r) { // a rest of 24 hours in a row is a night rest break too
+        var s = Math.max(r.s, a), en = Math.min(r.e, b); if (en - s < D) return;
+        var over = out.nights.filter(function (x) { return x.lo < en && x.hi > s; });
+        if (over.length && over.every(function (x) { return !x.ok; })) { over[0].ok = true; over[0].via24 = true; }
+      });
+      out.got = out.nights.filter(function (x) { return x.ok; }).length;
+      return out;
+    }
+    out.kind = 'rest';
+    var need = D, want = 1, m = f.msg || '';
+    if (f.rule === 'd24') need = d24Rest(null, optId, cfg);
+    else if (f.rule === 'r10') need = 40;
+    else if (/blocks of 7h/.test(m) && /^Only/.test(m)) { need = 28; out.blocks = true; }
+    else if (optId === 'bfm') want = 2; else if (optId === 'bus') want = 4;
+    out.need = need; out.want = want; out.rests = [];
+    c.runs.forEach(function (r) {
+      if (r.e <= a || r.s >= b) return;
+      var s = Math.max(r.s, a), en = Math.min(r.e, b), len = en - s, full = Math.min(r.e, b + need) - s;
+      if (len < need * 0.75 && !(r.e > b && full >= need * 0.75)) return;
+      out.rests.push({ s: s, e: en, len: len, ok: len >= need, cut: r.e > b && len < need, shortBy: len < need ? need - len : 0 });
+    });
+    if (!out.rests.length) { var mx = null; restIn(c, a, b).forEach(function (r) { if (!mx || r.len > mx.len) mx = r; }); if (mx) out.rests.push({ s: mx.s, e: mx.e, len: mx.len, ok: false, cut: false, shortBy: need - mx.len, longest: true }); }
+    return out;
+  }
+
+  root.FM = { OPTIONS: OPTIONS, analyse: analyse, meters: meters, forecast: forecast, explain: explain, hm: hm, D: D };
 })(typeof window !== 'undefined' ? window : globalThis);
