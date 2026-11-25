@@ -96,6 +96,15 @@
     return out;
   }
 
+  // The first work slot after which a rest requirement of the period [a,b) can no longer be met,
+  // even if everything after it is rest. fails(ctx, a, b) returns a message when the requirement is not met.
+  function lastChance(c, a, b, fails) {
+    var lo = Math.max(0, a), hi = Math.min(c.N, b) - 1; if (hi < lo) return null;
+    var test = function (t) { var W = c.W.slice(); for (var i = t + 1; i < W.length; i++) W[i] = 0; return !!fails(buildCtx(W), a, b); };
+    if (!test(hi)) return null;
+    while (lo < hi) { var mid = (lo + hi) >> 1; if (test(mid)) hi = mid; else lo = mid + 1; }
+    return c.W[lo] ? lo : null;
+  }
   function rulesFor(optId, cfg) {
     var o = OPTIONS[optId] || OPTIONS.std, R = [];
     var dayMax = o.dayMax, dayRest = o.dayRest, major = o.major;
@@ -129,13 +138,42 @@
     var hasNight = function (c) { return function (a, b) { return nightsIn(c, a, b).length > 0; }; };
     var is24orNight = function (c) { return function (st) { return st.rb >= D || c.runs[st.run].nights > 0; }; };
     var has24orNight = function (c) { return function (a, b) { return maxRest(c, a, b) >= D || nightsIn(c, a, b).length > 0; }; };
+    // The moment the night rests needed in a period can no longer be reached, even if every later night is rested.
+    // A night (10pm to 8am) is lost at the first work after which 7 continuous hours no longer fit in it.
+    function nightLost(c, a, b, need, pair) {
+      var k0 = Math.floor(a / D) - 1, k1 = Math.floor(b / D), list = [], k, t;
+      for (k = k0; k <= k1; k++) {
+        var lo = Math.max(a, k * D + 88), hi = Math.min(b, k * D + 128); if (hi - lo < 28) continue;
+        var run = 0, got = false, lost = -1;
+        for (t = lo; t < hi; t++) {
+          if (t >= 0 && t < c.N && c.W[t]) { run = 0; if (hi - (t + 1) < 28) { lost = t; break; } }
+          else if (++run >= 28) { got = true; break; }
+        }
+        list.push({ k: k, lost: lost, hi: hi, lo: lo });
+      }
+      // a rest of 24 continuous hours is a night rest break too, even when it holds no 7 hours between 10pm and 8am
+      c.runs.forEach(function (r) {
+        var s = Math.max(r.s, a), en = Math.min(r.e, b); if (en - s < D) return;
+        var over = list.filter(function (x) { return x.lo < en && x.hi > s; });
+        if (over.length && over.every(function (x) { return x.lost >= 0; })) over[0].lost = -1;
+      });
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].lost < 0) continue;
+        var ks = {}, n = 0, pr = false;
+        list.forEach(function (x, j) { if (j > i || (j < i && x.lost < 0)) { ks[x.k] = 1; n++; } });
+        for (k in ks) if (ks[+k + 1]) pr = true;
+        if (n < need || (pair && !pr)) return { at: list[i].lost, hi: list[i].hi };
+      }
+      return null;
+    }
     function nightRule(need, pair) {
       return function (c, a, b) {
         var ns = nightsIn(c, a, b);
         if (ns.length >= need && (!pair || hasPair(ns))) return null;
-        return { at: b - 1, noFlag: true, msg: ns.length < need
-          ? 'Only ' + ns.length + ' of ' + need + ' night rest breaks in this period.'
-          : need + ' night rest breaks taken, but no 2 on consecutive days.' };
+        var msg = ns.length < need ? 'Only ' + ns.length + ' of ' + need + ' night rest breaks in this period.' : need + ' night rest breaks taken, but no 2 on consecutive days.';
+        var nl = nightLost(c, a, b, need, pair);
+        if (!nl) return { at: b - 1, noFlag: true, msg: msg };
+        return { at: nl.at, slots: workSlotsIn(c, nl.at, nl.hi), msg: msg + ' Work at this time took away a night rest (7 hours in a row between 10pm and 8am) that the period still needed.' };
       };
     }
     function nightMeter(need, pair) { return function (c, a, b, T) { var ns = nightsIn(c, a, Math.min(b, T)); return { got: ns.length, need: need, pair: pair ? hasPair(ns) : null }; }; }
@@ -171,7 +209,11 @@
       };
       R.push({ id: 'w7', group: 'week', P: 7 * D, max: (bf ? 70 : 60) * HR, label: '7-day period', text: 'No more than ' + (bf ? 70 : 60) + 'h work in any 7 days, with 24 continuous hours rest and another 24h rest in blocks of 7h or more',
         anchor: function (c) { return anchors(c, 7 * D, is24(c), has24(c)); },
-        rest: function (c, a, b) { var m = blocksOk(c, a, b); return m ? { at: b - D, msg: m } : null; },
+        rest: function (c, a, b) {
+          var m = blocksOk(c, a, b); if (!m) return null;
+          var t = lastChance(c, a, b, blocksOk);
+          return t == null ? { at: b - D, msg: m } : { at: t, slots: workSlotsIn(c, t, b), msg: m };
+        },
         restMeter: function (c, a, b, T) { return { got: Math.min(1, count24(c, a, Math.min(b, T))), need: 1, unit: '24h rest' }; } });
       R.push({ id: 'w14', group: 'fort', P: 14 * D, max: (bf ? 140 : 120) * HR, label: '14-day period', text: 'No more than ' + (bf ? 140 : 120) + 'h work in any 14 days, with 4 night rest breaks' + (bf ? '' : ' (2 on consecutive days)'),
         anchor: function (c) { return anchors(c, 14 * D, isNight(c), hasNight(c)); }, rest: nightRule(4, !bf), nightMeter: nightMeter(4, !bf) });
@@ -232,7 +274,7 @@
         checks.forEach(function (fn, ci) {
           var v = fn(c, a, b); if (!v) return;
           add({ rule: r.id + (ci ? 'n' : ''), group: r.group, label: r.label, kind: 'rest', from: a, to: b, at: v.at, warn: !!v.warn,
-            slots: v.noFlag ? [] : workSlotsIn(c, v.at, b), msg: v.msg });
+            slots: v.slots ? v.slots : v.noFlag ? [] : workSlotsIn(c, v.at, b), msg: v.msg });
         });
         if (r.r84) { // 24 continuous hours rest must come after no more than 84 hours work
           var first = null; restIn(c, a, b).some(function (x) { if (x.len >= D) { first = x; return true; } return false; });
