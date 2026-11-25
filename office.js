@@ -132,9 +132,9 @@
     }, 'small');
   }
   function download(blob, name) { var url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 60000); }
-  function shareFile(blob, name) {
+  function shareFile(blob, name, msg) {
     var file = new File([blob], name, { type: blob.type });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) return navigator.share({ files: [file], title: name }).catch(function (e) { if (!e || e.name !== 'AbortError') throw e; });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) return navigator.share(msg ? { files: [file], title: msg.subject, text: msg.text } : { files: [file], title: name }).catch(function (e) { if (!e || e.name !== 'AbortError') throw e; });
     download(blob, name); return Promise.resolve();
   }
   function readImage(file, max) { // same as the original: scale down and keep as PNG
@@ -144,8 +144,22 @@
     return createImageBitmap(file).then(function (bm) { var sc = Math.min(1, max / Math.max(bm.width, bm.height)), c = document.createElement('canvas'); c.width = bm.width * sc; c.height = bm.height * sc; c.getContext('2d').drawImage(bm, 0, 0, c.width, c.height); bm.close(); return c.toDataURL('image/png'); });
   }
   // Document preview with the original PDF engine
-  function docPreview(name, pages) {
-    sheet(name, '<div class="tools"><button class="btn" id="dp-zoom">Enlarge</button><button class="btn pri" id="dp-dl" disabled>Download PDF</button><button class="btn" id="dp-sh" disabled>Share PDF</button></div><div class="paper-scroll" id="dp-pages"><p>Preparing document…</p></div>', function (bd) {
+  // The short message that goes with an invoice in email, WhatsApp or a text message
+  function invoiceMessage(d) {
+    var I = APS.invoices, n2 = function (v) { return Number(v) || 0; }, $ = function (v) { return '$' + n2(v).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+    var dd = function (iso, long) { var p = String(iso || '').split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + (long ? p[0] : p[0].slice(2)) : ''; };
+    var loads = d.loads.filter(I.activeLoad), misc = d.misc.filter(I.activeMisc), lt = loads.reduce(function (s, r) { return s + n2(r.amount); }, 0), mt = misc.reduce(function (s, r) { return s + n2(r.amount); }, 0);
+    var km = loads.reduce(function (s, r) { return s + (I.isCO(r.type) ? 0 : n2(r.km)); }, 0), sub = lt + mt, g = Number(d.gst) > 0 ? Number(d.gst) : 0, tax = Math.round(sub * g) / 100;
+    var L = ['Hi,', '', 'Please find attached invoice ' + d.invoiceNo + ' for the period ' + dd(d.dateFrom) + ' to ' + dd(d.dateTo) + '.', ''];
+    if (loads.length) L.push('Loads: ' + loads.length + (km ? ', total ' + km.toLocaleString('en-AU') + ' km' : '') + ' — ' + $(lt));
+    if (misc.length) L.push('Miscellaneous: ' + misc.length + (misc.length === 1 ? ' item' : ' items') + ' — ' + $(mt));
+    if (g) { L.push('Subtotal: ' + $(sub)); L.push('GST ' + g + '%: ' + $(tax)); L.push('Total including GST: ' + $(sub + tax)); } else L.push('Total: ' + $(sub));
+    if (d.yellowDate) { L.push(''); L.push('Yellow pages submitted to ' + dd(d.yellowDate, true) + '.'); }
+    L.push(''); L.push('Thank you,'); if (d.nameSg) L.push(d.nameSg); if (d.mobile) L.push(d.mobile);
+    return { subject: 'Invoice ' + d.invoiceNo + ' · ' + dd(d.dateFrom) + ' to ' + dd(d.dateTo) + (d.nameSg ? ' · ' + d.nameSg : ''), text: L.join('\n') };
+  }
+  function docPreview(name, pages, msg) {
+    sheet(name, '<div class="tools"><button class="btn" id="dp-zoom">Enlarge</button><button class="btn pri" id="dp-dl" disabled>Download PDF</button><button class="btn" id="dp-sh" disabled>Share PDF</button>' + (msg ? '<button class="btn" id="dp-msg">Copy message</button>' : '') + '</div>' + (msg ? '<details class="fold msgfold"><summary>Message that goes with it</summary><pre class="msgpre" id="dp-msgt"></pre></details>' : '') + '<div class="paper-scroll" id="dp-pages"><p>Preparing document…</p></div>', function (bd) {
       var box = bd.querySelector('#dp-pages'), pdf = null, zoom = false;
       APS.preparePdfPages(pages).then(function (prep) {
         box.innerHTML = prep.map(function (p) { return '<div class="paper">' + p + '</div>'; }).join('');
@@ -154,7 +168,8 @@
         .catch(function (e) { box.insertAdjacentHTML('afterbegin', '<p role="alert" class="bad">' + esc(e.message || 'The document could not be prepared.') + '</p>'); });
       bd.querySelector('#dp-zoom').addEventListener('click', function (e) { zoom = !zoom; box.classList.toggle('zoom', zoom); e.target.textContent = zoom ? 'Fit page' : 'Enlarge'; });
       bd.querySelector('#dp-dl').addEventListener('click', function () { if (pdf) download(pdf, name + '.pdf'); });
-      bd.querySelector('#dp-sh').addEventListener('click', function () { if (pdf) shareFile(pdf, name + '.pdf').catch(function (e) { toast(e.message || 'Sharing did not work.'); }); });
+      if (msg) { bd.querySelector('#dp-msgt').textContent = msg.subject + '\n\n' + msg.text; bd.querySelector('#dp-msg').addEventListener('click', function () { (navigator.clipboard ? navigator.clipboard.writeText(msg.text) : Promise.reject()).then(function () { toast('Message copied. Paste it into WhatsApp, a text or an email.'); }, function () { toast('Copy is not available here.'); }); }); }
+      bd.querySelector('#dp-sh').addEventListener('click', function () { if (pdf) shareFile(pdf, name + '.pdf', msg).catch(function (e) { toast(e.message || 'Sharing did not work.'); }); });
     }, 'wide');
   }
   // Signature pad: 600 x 180 canvas, dark pen, saved as a PNG (same as the original)
@@ -183,7 +198,7 @@
     try { total = I.money(I.calculateInvoice(inv).total); } catch (e) {}
     var wd = withDays(O);
     h = '<div class="wrap">' + tabs('invoices') + '<div class="datebar"><div class="day">Invoice ' + esc(inv.invoiceNo) + ' <span class="chip ' + (locked ? 'ok' : '') + '">' + inv.status + ' · r' + inv.revision + '</span></div><button class="btn" id="iv-back">‹ Invoices</button><button class="btn" id="iv-dup">Duplicate</button></div>';
-    h += '<div class="card"><div class="form three">' + fld('iv-invoiceNo', 'Invoice number', inv.invoiceNo, { disabled: locked }) + fld('iv-dateFrom', 'Date from', inv.dateFrom, { type: 'date', disabled: locked }) + fld('iv-dateTo', 'Date to', inv.dateTo, { type: 'date', disabled: locked }) + fld('iv-yellowDate', 'Yellow pages submitted to', inv.yellowDate, { type: 'date', disabled: locked }) + '</div></div>';
+    h += '<div class="card"><div class="form three">' + fld('iv-invoiceNo', 'Invoice number', inv.invoiceNo, { disabled: locked }) + fld('iv-dateFrom', 'Date from', inv.dateFrom, { type: 'date', disabled: locked }) + fld('iv-dateTo', 'Date to', inv.dateTo, { type: 'date', disabled: locked }) + fld('iv-yellowDate', 'Yellow pages submitted to', inv.yellowDate, { type: 'date', disabled: locked }) + fld('iv-gst', 'GST', inv.gst || '', { options: [['', 'No GST'], ['10', 'Add 10% GST']], disabled: locked }) + '</div></div>';
     h += '<details class="card fold" id="iv-details"' + (ui.open['iv-details'] == null && !O.invoiceSettings.profile.billTo ? ' open' : '') + '><summary>Business, customer &amp; bank details</summary><div class="form">' + INV_DETAILS.map(function (x) { return fld('iv-' + x[0], x[1], inv[x[0]], { type: x[0] === 'mobile' ? 'tel' : x[0] === 'email' ? 'email' : 'text', disabled: locked }); }).join('') + '</div><div class="tools" style="margin-top:12px"><button class="btn" id="iv-savedef"' + (locked ? ' disabled' : '') + '>Save as defaults</button><span class="hint">Saved details are filled automatically for new invoices.</span></div></details>';
     h += '<div class="card stack"><div class="datebar"><h3 style="margin-right:auto">Load details</h3><button class="btn" id="iv-trip"' + (locked ? ' disabled' : '') + '>+ From diary</button></div>';
     inv.loads.forEach(function (r, n) {
@@ -215,6 +230,7 @@
     main.innerHTML = h;
 
     click('iv-back', function () { ui.inv = ''; draw('invoices'); main.scrollTop = 0; });
+    on('iv-gst', 'change', function (e) { var v = e.target.value; quiet(invEdit(function (i) { i.gst = v; })).then(function () { return quiet(mutate(function (w) { w.invoiceSettings.gst = v; })); }).then(function () { later('invoices'); }); });
     ['invoiceNo', 'dateFrom', 'dateTo', 'notes', 'yellowDate'].concat(INV_DETAILS.map(function (x) { return x[0]; })).forEach(function (k) {
       on('iv-' + k, 'change', function (e) { var v = e.target.value; quiet(invEdit(function (i) { i[k] = v; })).then(function () { later('invoices'); }); });
     });
@@ -250,7 +266,7 @@
         id = nx.id; w.invoices.push(nx); w.invoiceSettings.nextInvoiceNo++;
       })).then(function () { if (id) { ui.inv = id; draw('invoices'); main.scrollTop = 0; toast('Copied to a new draft.'); } });
     });
-    click('iv-pdf', function () { try { var d = I.validateInvoice(O.invoices.find(function (x) { return x.id === ui.inv; })).invoice; docPreview('Invoice-' + d.invoiceNo + '-' + d.dateFrom + '-to-' + d.dateTo, APS.invoicePages(d)); } catch (e) { toast(e.message); } });
+    click('iv-pdf', function () { try { var d = I.validateInvoice(O.invoices.find(function (x) { return x.id === ui.inv; })).invoice; d.gst = (O.invoices.find(function (x) { return x.id === ui.inv; }) || {}).gst || ''; docPreview('Invoice-' + d.invoiceNo + '-' + d.dateFrom + '-to-' + d.dateTo, APS.invoicePages(d), invoiceMessage(d)); } catch (e) { toast(e.message); } });
     click('iv-csv', function () { try { download(new Blob(['﻿' + I.invoiceCsv(inv)], { type: 'text/csv;charset=utf-8' }), 'Invoice-' + inv.invoiceNo + '.csv'); } catch (e) { toast(e.message); } });
     click('iv-xlsx', function () { try { download(new Blob([APS.invoiceExcel(inv)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'Invoice-' + inv.invoiceNo + '-' + inv.dateFrom + '-' + inv.dateTo + '.xlsx'); } catch (e) { toast(e.message); } });
     click('iv-rev', function () {
@@ -300,7 +316,7 @@
     main.innerHTML = h;
     click('iv-auto', function () { tripAsk('', true); });
     ['start', 'end', 'ask'].forEach(function (k) { on('au-' + k, 'change', function (e) { var v = e.target.value; quiet(mutate(function (w) { var a = Object.assign({}, w.invoiceSettings.auto); a[k] = k === 'ask' ? v === '1' : +v; w.invoiceSettings.auto = a; })); }); });
-    click('iv-new', function () { var id = ''; quiet(mutate(function (w) { var i = I.newInvoice(w); id = i.id; w.invoices.push(i); w.invoiceSettings.nextInvoiceNo++; })).then(function () { if (id) { ui.inv = id; delete ui.open['iv-details']; draw('invoices'); main.scrollTop = 0; } }); });
+    click('iv-new', function () { var id = ''; quiet(mutate(function (w) { var i = I.newInvoice(w); i.gst = w.invoiceSettings.gst || ''; id = i.id; w.invoices.push(i); w.invoiceSettings.nextInvoiceNo++; })).then(function () { if (id) { ui.inv = id; delete ui.open['iv-details']; draw('invoices'); main.scrollTop = 0; } }); });
     on('iv-search', 'input', function (e) { ui.invSearch = e.target.value; var p = e.target.selectionStart; draw('invoices'); var n = document.getElementById('iv-search'); n.focus(); try { n.setSelectionRange(p, p); } catch (x) {} });
     each('[data-inv]', function (b) { b.addEventListener('click', function () { ui.inv = b.dataset.inv; delete ui.open['iv-details']; draw('invoices'); main.scrollTop = 0; }); });
     INV_DETAILS.forEach(function (x) { on('df-' + x[0], 'change', function (e) { var v = e.target.value; quiet(mutate(function (w) { w.invoiceSettings.profile[x[0]] = v; })); }); });
@@ -594,7 +610,7 @@
             row.type = type; row.rate = w.invoiceSettings.typeRates[type] || ''; if (I.isCO(type)) row.fixedAmount = row.rate;
             try { Object.assign(row, I.calculateLoad(row)); } catch (e) { /* no rate yet: the row stays a draft */ }
             var inv = draftFor(w, p, row.loadDate);
-            if (!inv) { inv = I.newInvoice(w); inv.dateFrom = p.from; inv.dateTo = p.to; inv.loads = []; w.invoices.push(inv); w.invoiceSettings.nextInvoiceNo++; info.fresh = true; }
+            if (!inv) { inv = I.newInvoice(w); inv.gst = w.invoiceSettings.gst || ''; inv.dateFrom = p.from; inv.dateTo = p.to; inv.loads = []; w.invoices.push(inv); w.invoiceSettings.nextInvoiceNo++; info.fresh = true; }
             if (inv.dateFrom > row.loadDate) inv.dateFrom = row.loadDate;
             inv.loads = inv.loads.filter(I.activeLoad); inv.loads.push(row);
             extra.forEach(function (x) { if (!(x[1] > 0)) return; var m = Object.assign(I.blankMisc(), { date: row.loadDate, item: x[0], quantity: String(x[1]), rate: x[2] }); try { Object.assign(m, I.calculateMisc(m)); } catch (e) {} inv.misc.push(m); if (x[2]) w.invoiceSettings.miscItemRates[x[0]] = x[2]; if (w.invoiceSettings.miscItems.indexOf(x[0]) < 0) w.invoiceSettings.miscItems.push(x[0]); });

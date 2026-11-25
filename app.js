@@ -4,7 +4,7 @@
   var ZONES = { ACT: 'Australia/Sydney', NSW: 'Australia/Sydney', VIC: 'Australia/Melbourne', QLD: 'Australia/Brisbane', SA: 'Australia/Adelaide', TAS: 'Australia/Hobart', NT: 'Australia/Darwin', WA: 'Australia/Perth' };
   var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var BLANK = new Array(D + 1).join('r');
-  var KEY = 'workdiary.v1', VERSION = '2.8.3';
+  var KEY = 'workdiary.v1', VERSION = '2.9.0';
   var HOSTED = !!(window.claude && window.claude.use); // true inside Claude, false on your own site
 
   /* ---------- state ---------- */
